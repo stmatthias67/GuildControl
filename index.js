@@ -8,6 +8,8 @@ const mongoose = require("mongoose");
 const fs = require("fs");
 const path = require("path");
 
+const setupHandler = require("./interactions/setupHandler");
+
 // ── Client erstellen ─────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
@@ -90,13 +92,11 @@ client.on("interactionCreate", async interaction => {
   }
 
   // 🔥 NEU: Setup Interactions (Buttons, Selects)
-  else if (interaction.isButton() || interaction.isStringSelectMenu()) {
-    try {
-      const setupHandler = require("./interactions/setupHandler");
-      await setupHandler(interaction);
-    } catch (err) {
-      console.error("❌ Setup Interaction Fehler:", err);
-    }
+  else if (
+    interaction.isButton() ||
+    interaction.isStringSelectMenu()
+  ) {
+    await setupHandler(interaction);
   }
 });
 
