@@ -1,5 +1,8 @@
 require("dotenv").config();
 
+process.on("unhandledRejection", console.error);
+process.on("uncaughtException", console.error);
+
 const { Client, GatewayIntentBits, Collection } = require("discord.js");
 const mongoose = require("mongoose");
 const fs = require("fs");
