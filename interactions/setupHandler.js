@@ -1,5 +1,8 @@
 const GuildConfig = require("../models/GuildConfig");
-const roleSetup = require("./roleSetup");
+const {
+  startRoleSetup,
+  handleRoleSetupInteraction
+} = require("./roleSetup");
 
 module.exports = {
   name: "interactionCreate",
@@ -11,6 +14,13 @@ module.exports = {
       !interaction.isRoleSelectMenu()
     ) return;
 
+    // 🔧 Role Setup Interactions
+    if (
+      interaction.customId.startsWith("role-setup-")
+    ) {
+      return handleRoleSetupInteraction(interaction);
+    }
+
     // 📋 Setup Menu (StringSelectMenu)
     if (interaction.isStringSelectMenu()) {
       if (interaction.customId === "setup-menu") {
@@ -18,7 +28,7 @@ module.exports = {
 
         // 👑 Rollen Setup
         if (value === "roles") {
-          return roleSetup(interaction);
+          return startRoleSetup(interaction);
         }
 
         // 🎫 Ticket Setup
