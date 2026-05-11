@@ -42,6 +42,9 @@ module.exports = {
     }
 
     // 🚀 Auto Setup
+    if (interaction.customId === "setup-roles") {
+      return roleSetup(interaction);
+    }
     if (interaction.customId === "setup-create-all") {
       await interaction.deferReply({ ephemeral: true });
 

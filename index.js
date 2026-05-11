@@ -7,7 +7,7 @@ const { Client, GatewayIntentBits, Collection, REST, Routes } = require("discord
 const mongoose = require("mongoose");
 const fs = require("fs");
 const path = require("path");
-const { handleSetupInteraction } = require("./interactions/setupHandler");
+const setupHandler = require("./interactions/setupHandler");
 
 // ── Client erstellen ─────────────────────────────────────────────────────────
 const client = new Client({
@@ -126,7 +126,7 @@ client.on("interactionCreate", async interaction => {
 
     if (isSetupInteraction) {
       try {
-        await handleSetupInteraction(interaction);
+        await setupHandler.execute(interaction, client);
       } catch (err) {
         console.error("❌ Fehler im Setup-Handler:", err);
         const errorMsg = { content: "❌ Fehler im Setup-System.", ephemeral: true };
