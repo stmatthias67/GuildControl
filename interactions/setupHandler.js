@@ -1,15 +1,51 @@
+const GuildConfig = require("../models/GuildConfig");
+const roleSetup = require("./roleSetup");
+
 module.exports = {
   name: "interactionCreate",
   async execute(interaction, client) {
 
-    if (!interaction.isButton() && !interaction.isStringSelectMenu()) return;
+    if (
+      !interaction.isButton() &&
+      !interaction.isStringSelectMenu() &&
+      !interaction.isRoleSelectMenu()
+    ) return;
+
+    // 📋 Setup Menu (StringSelectMenu)
+    if (interaction.isStringSelectMenu()) {
+      if (interaction.customId === "setup-menu") {
+        const value = interaction.values[0];
+
+        // 👑 Rollen Setup
+        if (value === "roles") {
+          return roleSetup(interaction);
+        }
+
+        // 🎫 Ticket Setup
+        if (value === "tickets") {
+          return interaction.update({
+            content: "🎫 Ticket Setup kommt jetzt als nächstes!",
+            embeds: [],
+            components: []
+          });
+        }
+
+        // 🛡️ Security Setup
+        if (value === "security") {
+          return interaction.update({
+            content: "🛡️ Security Setup kommt jetzt als nächstes!",
+            embeds: [],
+            components: []
+          });
+        }
+      }
+    }
 
     // 🚀 Auto Setup
     if (interaction.customId === "setup-create-all") {
       await interaction.deferReply({ ephemeral: true });
 
       try {
-        // ✅ FIX: War "const { "Supporter"... }" → muss Array sein
         const roles = ["Supporter", "Mitglied"];
 
         for (const roleName of roles) {
