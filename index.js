@@ -3,12 +3,11 @@ require("dotenv").config();
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
 
-const { Client, GatewayIntentBits, Collection } = require("discord.js");
+const { Client, GatewayIntentBits, Collection, REST, Routes } = require("discord.js");
 const mongoose = require("mongoose");
 const fs = require("fs");
 const path = require("path");
-
-const setupHandler = require("./interactions/setupHandler");
+const { handleSetupInteraction } = require("./interactions/setupHandler");
 
 // ── Client erstellen ─────────────────────────────────────────────────────────
 const client = new Client({
@@ -16,7 +15,8 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildVoiceStates,
   ],
 });
 
@@ -29,7 +29,7 @@ const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith("
 for (const file of commandFiles) {
   const command = require(path.join(commandsPath, file));
 
-  if (!command?.data?.name) {
+  if (!command?.data?.name || !command?.execute) {
     console.warn(`⚠️ ${file} hat keinen gültigen Command`);
     continue;
   }
@@ -62,22 +62,37 @@ if (fs.existsSync(eventsPath)) {
   }
 }
 
-// ── MongoDB verbinden ───────────────────────────────────────────────────────
-if (process.env.MONGO_URI) {
-  mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log("✅ MongoDB verbunden"))
-    .catch(err => console.error("❌ Mongo Fehler:", err));
-}
-
-// ── Ready Event (Fallback) ──────────────────────────────────────────────────
-client.once("ready", () => {
+// ── Ready Event ─────────────────────────────────────────────────────────────
+client.once("ready", async () => {
   console.log(`🤖 Eingeloggt als ${client.user.tag}`);
   console.log(`📡 Verbunden mit ${client.guilds.cache.size} Server(n)`);
+
+  // MongoDB verbinden
+  if (process.env.MONGO_URI) {
+    try {
+      await mongoose.connect(process.env.MONGO_URI);
+      console.log("✅ MongoDB verbunden");
+    } catch (err) {
+      console.error("❌ Mongo Fehler:", err);
+    }
+  }
+
+  // Slash Commands registrieren
+  try {
+    const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
+    const commandData = [...client.commands.values()].map(cmd => cmd.data.toJSON());
+
+    await rest.put(Routes.applicationCommands(client.user.id), { body: commandData });
+    console.log(`✅ ${commandData.length} Slash Command(s) registriert`);
+  } catch (err) {
+    console.error("❌ Fehler beim Registrieren der Slash Commands:", err);
+  }
 });
 
-// ── Interaction Handler (Fallback) ──────────────────────────────────────────
-
+// ── Interaction Handler ──────────────────────────────────────────────────────
 client.on("interactionCreate", async interaction => {
+
+  // Slash Commands
   if (interaction.isChatInputCommand()) {
     console.log("➡️ Command bekommen:", interaction.commandName);
 
@@ -86,17 +101,43 @@ client.on("interactionCreate", async interaction => {
 
     try {
       await command.execute(interaction);
-    } catch (error) {
-      console.error(`❌ Fehler bei /${interaction.commandName}:`, error);
+    } catch (err) {
+      console.error(`❌ Fehler bei /${interaction.commandName}:`, err);
+      const errorMsg = { content: "❌ Ein Fehler ist aufgetreten.", ephemeral: true };
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp(errorMsg).catch(() => {});
+      } else {
+        await interaction.reply(errorMsg).catch(() => {});
+      }
     }
+    return;
   }
 
-  // 🔥 NEU: Setup Interactions (Buttons, Selects)
-  else if (
+  // Setup-Interaktionen (Buttons, SelectMenus)
+  if (
     interaction.isButton() ||
-    interaction.isStringSelectMenu()
+    interaction.isStringSelectMenu() ||
+    interaction.isRoleSelectMenu()
   ) {
-    await setupHandler(interaction);
+    const setupPrefixes = ["setup-", "role-setup-"];
+    const isSetupInteraction = setupPrefixes.some(prefix =>
+      interaction.customId.startsWith(prefix)
+    );
+
+    if (isSetupInteraction) {
+      try {
+        await handleSetupInteraction(interaction);
+      } catch (err) {
+        console.error("❌ Fehler im Setup-Handler:", err);
+        const errorMsg = { content: "❌ Fehler im Setup-System.", ephemeral: true };
+        if (interaction.replied || interaction.deferred) {
+          await interaction.followUp(errorMsg).catch(() => {});
+        } else {
+          await interaction.reply(errorMsg).catch(() => {});
+        }
+      }
+      return;
+    }
   }
 });
 
