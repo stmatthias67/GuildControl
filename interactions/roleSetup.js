@@ -74,7 +74,7 @@ function buildRoleComponents(stepIndex, selectedRoleId) {
     new RoleSelectMenuBuilder()
       .setCustomId(`role-setup-select:${stepIndex}`)
       .setPlaceholder(`Bestehende Rolle für "${def.label}" wählen`)
-      .setMinValues(0)
+      .setMinValues(1)
       .setMaxValues(1)
   );
 
@@ -104,10 +104,25 @@ function buildRoleComponents(stepIndex, selectedRoleId) {
 
 async function startRoleSetup(interaction) {
   const guildId = interaction.guild.id;
-  roleSessions.set(guildId, { stepIndex: 0, selectedRoleId: null });
+  const config = await GuildConfig.findOne({ guildId });
+  const firstKey = ROLE_DEFINITIONS[0].key;
+  const savedRoleId = config?.roles?.[firstKey] || null;
 
-  const embed = buildRoleEmbed(0, null, interaction.guild);
-  const components = buildRoleComponents(0, null);
+  roleSessions.set(guildId, {
+    stepIndex: 0,
+    selectedRoleId: savedRoleId
+  });
+
+  const embed = buildRoleEmbed(
+    0,
+    savedRoleId,
+    interaction.guild
+  );
+
+  const components = buildRoleComponents(
+    0,
+    savedRoleId
+  );
 
   await interaction.update({
     embeds: [embed],
@@ -122,7 +137,13 @@ async function handleRoleSetupInteraction(interaction) {
   const session = roleSessions.get(guildId) || { stepIndex, selectedRoleId: null };
 
   if (action === "role-setup-select") {
-    const selected = interaction.values[0] || null;
+    const selected = interaction.values?.[0];
+    if (!selected) {
+        return interaction.reply({
+          content: "❌ Keine Rolle ausgewählt.",
+          ephemeral: true
+        });
+    }
     session.selectedRoleId = selected;
     roleSessions.set(guildId, session);
 
@@ -198,26 +219,58 @@ async function handleRoleSetupInteraction(interaction) {
     }
     return;
   }
-
   if (action === "role-setup-save") {
+
     await interaction.deferUpdate();
     const roleId = session.selectedRoleId;
     const def = ROLE_DEFINITIONS[stepIndex];
 
+    console.log("SAVE ROLE:", roleId);
+    console.log("SAVE KEY:", def.key);
+
     if (!roleId) {
-      await interaction.editReply({ content: "❌ Keine Rolle ausgewählt.", embeds: [], components: [] });
-      return;
+      return interaction.editReply({
+        content: "❌ Keine Rolle ausgewählt.",
+        embeds: [],
+        components: []
+      });
     }
 
-    await GuildConfig.findOneAndUpdate(
-      { guildId },
-      { $set: { [`roles.${def.key}`]: roleId } },
-      { upsert: true, new: true }
+    try {
+
+      await GuildConfig.findOneAndUpdate(
+        { guildId: interaction.guild.id },
+        {
+          $set: {
+            [`roles.${def.key}`]: roleId
+          }
+        },
+        {
+          upsert: true,
+          new: true
+        }
+      );
+    console.log("✅ Rolle gespeichert");
+
+    await advanceStep(
+      interaction,
+      interaction.guild.id,
+      stepIndex
     );
 
-    await advanceStep(interaction, guildId, stepIndex);
-    return;
+  } catch (err) {
+
+    console.error("SAVE ERROR:", err);
+
+    await interaction.editReply({
+      content: "❌ Fehler beim Speichern.",
+      embeds: [],
+      components: []
+    });
   }
+
+  return;
+}
 
   if (action === "role-setup-skip") {
     await interaction.deferUpdate();

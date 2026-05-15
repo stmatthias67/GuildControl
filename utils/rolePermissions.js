@@ -148,66 +148,6 @@ const ROLE_DEFINITIONS = [
     hoist: false,
     mentionable: false
   },
-  {
-    key: "bronze_donater",
-    label: "Bronze Donater",
-    emoji: "🥉",
-    color: 0xcd7f32,
-    description: "Bronze-Spender – hat den Server mit einem Bronze-Beitrag unterstützt.",
-    permissions: [],
-    hoist: false,
-    mentionable: false
-  },
-  {
-    key: "silber_donater",
-    label: "Silber Donater",
-    emoji: "🥈",
-    color: 0xc0c0c0,
-    description: "Silber-Spender – hat den Server mit einem Silber-Beitrag unterstützt.",
-    permissions: [],
-    hoist: false,
-    mentionable: false
-  },
-  {
-    key: "gold_donater",
-    label: "Gold Donater",
-    emoji: "🥇",
-    color: 0xffd700,
-    description: "Gold-Spender – hat den Server großzügig unterstützt.",
-    permissions: [],
-    hoist: true,
-    mentionable: false
-  },
-  {
-    key: "platin_donater",
-    label: "Platin Donater",
-    emoji: "💎",
-    color: 0xe8e8e8,
-    description: "Platin-Spender – hat den Server auf höchstem Level unterstützt.",
-    permissions: [],
-    hoist: true,
-    mentionable: false
-  },
-  {
-    key: "partner",
-    label: "Partner",
-    emoji: "🤝",
-    color: 0x9b59b6,
-    description: "Partner-Rolle für offizielle Server-Partner.",
-    permissions: [],
-    hoist: true,
-    mentionable: true
-  },
-  {
-    key: "nitro_booster",
-    label: "Nitro Booster",
-    emoji: "💜",
-    color: 0xf47fff,
-    description: "Nitro-Booster – boostet aktiv den Server.",
-    permissions: [],
-    hoist: true,
-    mentionable: false
-  }
 ];
 
 module.exports = { ROLE_DEFINITIONS };

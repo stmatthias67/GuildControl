@@ -8,6 +8,7 @@ const mongoose = require("mongoose");
 const fs = require("fs");
 const path = require("path");
 const setupHandler = require("./interactions/setupHandler");
+const ticketHandler = require("./interactions/ticketHandler"); // ← NEU
 
 // ── Client erstellen ─────────────────────────────────────────────────────────
 const client = new Client({
@@ -72,6 +73,11 @@ client.once("ready", async () => {
     try {
       await mongoose.connect(process.env.MONGO_URI);
       console.log("✅ MongoDB verbunden");
+      
+      // Models laden (optional, aber gut für die Initialisierung)
+      require("./models/Ticket");
+      require("./models/TicketConfig");
+      
     } catch (err) {
       console.error("❌ Mongo Fehler:", err);
     }
@@ -90,51 +96,102 @@ client.once("ready", async () => {
 });
 
 // ── Interaction Handler ──────────────────────────────────────────────────────
-client.on("interactionCreate", async interaction => {
+client.on("interactionCreate", async (interaction) => {
 
-  // Slash Commands
+  // =========================
+  // SLASH COMMANDS
+  // =========================
   if (interaction.isChatInputCommand()) {
+
     console.log("➡️ Command bekommen:", interaction.commandName);
 
     const command = client.commands.get(interaction.commandName);
+
     if (!command) return;
 
     try {
+
       await command.execute(interaction);
+
     } catch (err) {
+
       console.error(`❌ Fehler bei /${interaction.commandName}:`, err);
-      const errorMsg = { content: "❌ Ein Fehler ist aufgetreten.", ephemeral: true };
-      if (interaction.replied || interaction.deferred) {
-        await interaction.followUp(errorMsg).catch(() => {});
-      } else {
-        await interaction.reply(errorMsg).catch(() => {});
-      }
+
+      const errorMsg = {
+        content: "❌ Ein Fehler ist aufgetreten.",
+        ephemeral: true
+      };
+
+      try {
+
+        if (interaction.replied || interaction.deferred) {
+          await interaction.followUp(errorMsg);
+        } else {
+          await interaction.reply(errorMsg);
+        }
+
+      } catch (e) {}
     }
+
     return;
   }
 
-  // Setup-Interaktionen (Buttons, SelectMenus)
+  // =========================
+  // SETUP INTERACTIONS (bestehend)
+  // =========================
   if (
     interaction.isButton() ||
     interaction.isStringSelectMenu() ||
-    interaction.isRoleSelectMenu()
+    interaction.isRoleSelectMenu() ||
+    interaction.isChannelSelectMenu() ||  // ← ChannelSelectMenu hinzugefügt für Ticket-Setup
+    interaction.isModalSubmit()            // ← ModalSubmit hinzugefügt für Ticket-Setup
   ) {
-    const setupPrefixes = ["setup-", "role-setup-"];
-    const isSetupInteraction = setupPrefixes.some(prefix =>
-      interaction.customId.startsWith(prefix)
-    );
+
+    if (!interaction.customId) return;
+
+    // ──────────────────────────────────────────────────────────
+    // TICKET SYSTEM INTERACTIONS (NEU - PRIORITÄT 1)
+    // ──────────────────────────────────────────────────────────
+    if (
+      interaction.customId.startsWith("ticket-") ||
+      interaction.customId.startsWith("ticketsetup-")
+    ) {
+      try {
+        await ticketHandler.execute(interaction, client);
+      } catch (err) {
+        console.error("❌ Fehler im Ticket-Handler:", err);
+        try {
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+              content: "❌ Fehler im Ticket-System.",
+              ephemeral: true
+            });
+          }
+        } catch (e) {}
+      }
+      return;
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // BESTEHENDES SETUP SYSTEM
+    // ──────────────────────────────────────────────────────────
+    const isSetupInteraction =
+      interaction.customId.startsWith("setup-") ||
+      interaction.customId.startsWith("role-setup-");
 
     if (isSetupInteraction) {
       try {
         await setupHandler.execute(interaction, client);
       } catch (err) {
         console.error("❌ Fehler im Setup-Handler:", err);
-        const errorMsg = { content: "❌ Fehler im Setup-System.", ephemeral: true };
-        if (interaction.replied || interaction.deferred) {
-          await interaction.followUp(errorMsg).catch(() => {});
-        } else {
-          await interaction.reply(errorMsg).catch(() => {});
-        }
+        try {
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+              content: "❌ Fehler im Setup-System.",
+              ephemeral: true
+            });
+          }
+        } catch (e) {}
       }
       return;
     }
