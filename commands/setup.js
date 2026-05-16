@@ -8,19 +8,19 @@ const {
   EmbedBuilder
 } = require("discord.js");
 
+const { showSetupOverview: showTicketSetup } = require("../interactions/ticketHandler");
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("setup")
     .setDescription("GuildControl Setup"),
 
   async execute(interaction) {
-
     const embed = new EmbedBuilder()
       .setTitle("⚙️ GuildControl Setup")
       .setDescription("Wähle ein System zum Konfigurieren oder starte den Auto-Setup.")
       .setColor(0x5865f2);
 
-    // ✅ FIX: War ohne Anfang — StringSelectMenuBuilder + addOptions fehlt
     const menu = new StringSelectMenuBuilder()
       .setCustomId("setup-menu")
       .setPlaceholder("System auswählen...")
@@ -84,5 +84,18 @@ module.exports = {
       components: [row, buttons],
       ephemeral: true
     });
+  },
+
+  // Wird vom Interaction-Handler aufgerufen, wenn User "setup-menu" benutzt
+  async handleSelect(interaction) {
+    const value = interaction.values[0];
+
+    if (value === "tickets") {
+      return showTicketSetup(interaction);
+    }
+
+    // Weitere Systeme hier ergänzen:
+    // if (value === "roles") return showRoleSetup(interaction);
+    // if (value === "security") return showSecuritySetup(interaction);
   }
 };

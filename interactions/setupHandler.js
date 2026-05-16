@@ -3,6 +3,7 @@ const {
   startRoleSetup,
   handleRoleSetupInteraction
 } = require("./roleSetup");
+const { showSetupOverview: showTicketSetup, execute: handleTicketInteraction } = require("./ticketHandler");
 
 module.exports = {
   name: "interactionCreate",
@@ -11,14 +12,22 @@ module.exports = {
     if (
       !interaction.isButton() &&
       !interaction.isStringSelectMenu() &&
-      !interaction.isRoleSelectMenu()
+      !interaction.isRoleSelectMenu() &&
+      !interaction.isChannelSelectMenu() &&
+      !interaction.isModalSubmit()
     ) return;
 
     // 🔧 Role Setup Interactions
-    if (
-      interaction.customId.startsWith("role-setup-")
-    ) {
+    if (interaction.customId.startsWith("role-setup-")) {
       return handleRoleSetupInteraction(interaction);
+    }
+
+    // 🎫 Ticket Interactions (Setup & Live)
+    if (
+      interaction.customId.startsWith("ticketsetup-") ||
+      interaction.customId.startsWith("ticket-")
+    ) {
+      return handleTicketInteraction(interaction, client);
     }
 
     // 📋 Setup Menu (StringSelectMenu)
@@ -33,11 +42,7 @@ module.exports = {
 
         // 🎫 Ticket Setup
         if (value === "tickets") {
-          return interaction.update({
-            content: "🎫 Ticket Setup kommt jetzt als nächstes!",
-            embeds: [],
-            components: []
-          });
+          return showTicketSetup(interaction);
         }
 
         // 🛡️ Security Setup
@@ -52,9 +57,6 @@ module.exports = {
     }
 
     // 🚀 Auto Setup
-    if (interaction.customId === "setup-roles") {
-      return roleSetup(interaction);
-    }
     if (interaction.customId === "setup-create-all") {
       await interaction.deferReply({ ephemeral: true });
 
@@ -74,7 +76,6 @@ module.exports = {
           }
         }
 
-        // 💾 DB Config
         await GuildConfig.findOneAndUpdate(
           { guildId: interaction.guild.id },
           {

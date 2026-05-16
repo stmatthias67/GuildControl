@@ -21,13 +21,12 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
-  PermissionFlagsBits
 } = require("discord.js");
 
 const TicketConfig = require("../models/TicketConfig");
+const GuildConfig  = require("../models/GuildConfig");
 const Ticket       = require("../models/Ticket");
 
-// ── IMPORT AUS DER ZUSAMMENGEFÜHRTEN ticketManager.js ────────────────────────
 const {
   DEFAULT_CATEGORIES,
   createTicketV2,
@@ -36,12 +35,105 @@ const {
   addUserToTicketV2
 } = require("../utils/ticketManager");
 
-const {
-  buildOverviewEmbed,
-  buildOverviewComponents
-} = require("../commands/ticket-setup");
+// ── Hilfsfunktionen ───────────────────────────────────────────────────────────
 
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Liest alle konfigurierten Rollen aus GuildConfig (Role Setup).
+ * Gibt ein Array zurück: [{ key, roleId }]
+ */
+async function getSetupRoles(guildId) {
+  const config = await GuildConfig.findOne({ guildId });
+  if (!config?.roles) return [];
+  return Object.entries(config.roles)
+    .filter(([, id]) => id)
+    .map(([key, roleId]) => ({ key, roleId }));
+}
+
+function buildOverviewEmbed(cfg, setupRoles = []) {
+  const categories = cfg.categories.length
+    ? cfg.categories.map(c => {
+        const notifyMention = c.notifyRoleIds?.length
+          ? c.notifyRoleIds.map(id => `<@&${id}>`).join(", ")
+          : null;
+        return `${c.emoji} **${c.label}**${notifyMention ? ` — Ping: ${notifyMention}` : ""}`;
+      }).join("\n")
+    : "*Keine Kategorien konfiguriert*";
+
+  const rolesText = setupRoles.length
+    ? setupRoles.map(r => `\`${r.key}\`: <@&${r.roleId}>`).join("\n")
+    : "*Keine Rollen im Role Setup konfiguriert*";
+
+  return new EmbedBuilder()
+    .setTitle("🎫 Ticket System – Übersicht")
+    .setColor(cfg.setupDone ? 0x57f287 : 0x5865f2)
+    .addFields(
+      {
+        name: "📌 Kanäle",
+        value:
+          `Erstellen: ${cfg.createChannelId ? `<#${cfg.createChannelId}>` : "❌ Nicht gesetzt"}\n` +
+          `Log: ${cfg.logChannelId ? `<#${cfg.logChannelId}>` : "❌ Nicht gesetzt"}\n` +
+          `Claim: ${cfg.claimChannelId ? `<#${cfg.claimChannelId}>` : "*(optional)*"}`,
+        inline: false
+      },
+      { name: "🎟️ Kategorien", value: categories, inline: false },
+      { name: "👮 Rollen (aus Role Setup)", value: rolesText, inline: false },
+      {
+        name: "Status",
+        value: cfg.setupDone ? "✅ Setup abgeschlossen" : "⚠️ Setup noch nicht abgeschlossen",
+        inline: false
+      }
+    );
+}
+
+function buildOverviewComponents() {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId("ticketsetup-menu")
+    .setPlaceholder("Schritt auswählen...")
+    .addOptions([
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Kanäle konfigurieren")
+        .setDescription("Erstell-, Log- und Claim-Kanal festlegen")
+        .setValue("channels")
+        .setEmoji("📌"),
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Kategorien konfigurieren")
+        .setDescription("Ticket-Arten aktivieren oder erstellen")
+        .setValue("categories")
+        .setEmoji("🎟️"),
+      new StringSelectMenuOptionBuilder()
+        .setLabel("Ticket-Panel senden")
+        .setDescription("Panel in den Erstell-Kanal posten")
+        .setValue("sendpanel")
+        .setEmoji("📤")
+    ]);
+
+  const buttons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("ticketsetup-finish")
+      .setLabel("✅ Setup abschließen")
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId("ticketsetup-reset")
+      .setLabel("🔄 Zurücksetzen")
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  return [new ActionRowBuilder().addComponents(menu), buttons];
+}
+
+// ── Einstiegspunkt für setup.js ───────────────────────────────────────────────
+
+const showSetupOverview = async (interaction) => {
+  const cfg        = await getOrCreateConfig(interaction.guild.id);
+  const setupRoles = await getSetupRoles(interaction.guild.id);
+  return interaction.update({
+    embeds: [buildOverviewEmbed(cfg, setupRoles)],
+    components: buildOverviewComponents()
+  });
+};
+
+// ── Haupt-Handler ─────────────────────────────────────────────────────────────
+
 const execute = async (interaction, client) => {
   const id = interaction.customId;
 
@@ -49,12 +141,10 @@ const execute = async (interaction, client) => {
   // SETUP FLOW
   // ═══════════════════════════════════════════════════════
 
-  // Navigations-Menü
   if (id === "ticketsetup-menu" && interaction.isStringSelectMenu()) {
     const value = interaction.values[0];
     if (value === "channels")   return handleSetupChannels(interaction);
     if (value === "categories") return handleSetupCategories(interaction);
-    if (value === "roles")      return handleSetupRoles(interaction);
     if (value === "sendpanel")  return handleSetupSendPanel(interaction);
     return;
   }
@@ -64,8 +154,9 @@ const execute = async (interaction, client) => {
     const cfg = await getOrCreateConfig(interaction.guild.id);
     cfg.createChannelId = interaction.values[0];
     await cfg.save();
+    const setupRoles = await getSetupRoles(interaction.guild.id);
     return interaction.update({
-      embeds: [buildOverviewEmbed(cfg)],
+      embeds: [buildOverviewEmbed(cfg, setupRoles)],
       components: buildOverviewComponents()
     });
   }
@@ -75,8 +166,9 @@ const execute = async (interaction, client) => {
     const cfg = await getOrCreateConfig(interaction.guild.id);
     cfg.logChannelId = interaction.values[0];
     await cfg.save();
+    const setupRoles = await getSetupRoles(interaction.guild.id);
     return interaction.update({
-      embeds: [buildOverviewEmbed(cfg)],
+      embeds: [buildOverviewEmbed(cfg, setupRoles)],
       components: buildOverviewComponents()
     });
   }
@@ -86,25 +178,30 @@ const execute = async (interaction, client) => {
     const cfg = await getOrCreateConfig(interaction.guild.id);
     cfg.claimChannelId = interaction.values[0];
     await cfg.save();
+    const setupRoles = await getSetupRoles(interaction.guild.id);
     return interaction.update({
-      embeds: [buildOverviewEmbed(cfg)],
+      embeds: [buildOverviewEmbed(cfg, setupRoles)],
       components: buildOverviewComponents()
     });
   }
 
-  // Kategorien-Auswahl
+  // Kategorien-Auswahl (Standard-Kategorien)
   if (id === "ticketsetup-select-categories" && interaction.isStringSelectMenu()) {
     const cfg      = await getOrCreateConfig(interaction.guild.id);
-    const selected = interaction.values; // Array von category-ids
-    cfg.categories = DEFAULT_CATEGORIES.filter(c => selected.includes(c.id));
+    const selected = interaction.values;
+    // Bestehende custom-Kategorien behalten, Standard-Kategorien ersetzen
+    const customs   = cfg.categories.filter(c => c.custom);
+    const standards = DEFAULT_CATEGORIES.filter(c => selected.includes(c.id));
+    cfg.categories  = [...standards, ...customs];
     await cfg.save();
+    const setupRoles = await getSetupRoles(interaction.guild.id);
     return interaction.update({
-      embeds: [buildOverviewEmbed(cfg)],
+      embeds: [buildOverviewEmbed(cfg, setupRoles)],
       components: buildOverviewComponents()
     });
   }
 
-  // Custom Kategorie anlegen – Button → Modal öffnen
+  // Custom Kategorie – Button → Modal öffnen
   if (id === "ticketsetup-custom-category") {
     const modal = new ModalBuilder()
       .setCustomId("ticketsetup-modal-customcat")
@@ -140,7 +237,7 @@ const execute = async (interaction, client) => {
     return interaction.showModal(modal);
   }
 
-  // Custom Kategorie Modal Submit
+  // Custom Kategorie – Modal Submit → danach Rollen-Auswahl zeigen
   if (id === "ticketsetup-modal-customcat" && interaction.isModalSubmit()) {
     const label       = interaction.fields.getTextInputValue("cat-label");
     const description = interaction.fields.getTextInputValue("cat-description");
@@ -148,33 +245,106 @@ const execute = async (interaction, client) => {
     const customId    = `custom-${Date.now()}`;
 
     const cfg = await getOrCreateConfig(interaction.guild.id);
-    cfg.categories.push({ id: customId, label, description, emoji, custom: true });
+    cfg.categories.push({ id: customId, label, description, emoji, custom: true, notifyRoleIds: [] });
     await cfg.save();
 
+    // Rollen aus Role Setup laden
+    const setupRoles = await getSetupRoles(interaction.guild.id);
+
+    if (setupRoles.length === 0) {
+      // Keine Rollen konfiguriert → direkt zurück zur Übersicht
+      return interaction.update({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle("⚠️ Keine Rollen konfiguriert")
+            .setDescription(
+              `Kategorie **${emoji} ${label}** wurde erstellt.\n\n` +
+              "Im Role Setup sind noch keine Rollen konfiguriert. Führe zuerst das **Rollen Setup** durch, um Benachrichtigungs-Rollen setzen zu können."
+            )
+            .setColor(0xfee75c)
+        ],
+        components: buildOverviewComponents()
+      });
+    }
+
+    // Rollen-Auswahl für Benachrichtigung anzeigen
+    const options = setupRoles.map(r => {
+      const roleName = r.key.charAt(0).toUpperCase() + r.key.slice(1);
+      return new StringSelectMenuOptionBuilder()
+        .setLabel(roleName)
+        .setDescription(`ID: ${r.roleId}`)
+        .setValue(`${customId}::${r.roleId}`);
+    });
+
     return interaction.update({
-      embeds: [buildOverviewEmbed(cfg)],
+      embeds: [
+        new EmbedBuilder()
+          .setTitle(`🎟️ Kategorie: ${emoji} ${label}`)
+          .setDescription(
+            "Wähle welche **Role-Setup Rollen** bei neuen Tickets in dieser Kategorie benachrichtigt werden sollen.\n\n" +
+            "Nur Rollen aus dem Rollen Setup sind verfügbar."
+          )
+          .setColor(0x5865f2)
+      ],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("ticketsetup-customcat-roles")
+            .setPlaceholder("Benachrichtigungs-Rollen auswählen (mehrere möglich)")
+            .setMinValues(0)
+            .setMaxValues(setupRoles.length)
+            .addOptions(options)
+        ),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`ticketsetup-customcat-noroles::${customId}`)
+            .setLabel("Keine Benachrichtigung")
+            .setStyle(ButtonStyle.Secondary)
+        )
+      ]
+    });
+  }
+
+  // Custom Kategorie – Rollen gespeichert
+  if (id === "ticketsetup-customcat-roles" && interaction.isStringSelectMenu()) {
+    const cfg = await getOrCreateConfig(interaction.guild.id);
+
+    // Value-Format: "custom-TIMESTAMP::roleId"
+    const roleIdsByCategory = {};
+    for (const val of interaction.values) {
+      const [catId, roleId] = val.split("::");
+      if (!roleIdsByCategory[catId]) roleIdsByCategory[catId] = [];
+      roleIdsByCategory[catId].push(roleId);
+    }
+
+    for (const cat of cfg.categories) {
+      if (roleIdsByCategory[cat.id]) {
+        cat.notifyRoleIds = roleIdsByCategory[cat.id];
+      }
+    }
+    cfg.markModified("categories");
+    await cfg.save();
+
+    const setupRoles = await getSetupRoles(interaction.guild.id);
+    return interaction.update({
+      embeds: [buildOverviewEmbed(cfg, setupRoles)],
       components: buildOverviewComponents()
     });
   }
 
-  // Support-Rollen Auswahl
-  if (id === "ticketsetup-select-support-roles" && interaction.isRoleSelectMenu()) {
+  // Custom Kategorie – Keine Benachrichtigung (Skip)
+  if (id.startsWith("ticketsetup-customcat-noroles::") && interaction.isButton()) {
+    const customCatId = id.replace("ticketsetup-customcat-noroles::", "");
     const cfg = await getOrCreateConfig(interaction.guild.id);
-    cfg.supportRoleIds = interaction.values;
-    await cfg.save();
+    const cat = cfg.categories.find(c => c.id === customCatId);
+    if (cat) {
+      cat.notifyRoleIds = [];
+      cfg.markModified("categories");
+      await cfg.save();
+    }
+    const setupRoles = await getSetupRoles(interaction.guild.id);
     return interaction.update({
-      embeds: [buildOverviewEmbed(cfg)],
-      components: buildOverviewComponents()
-    });
-  }
-
-  // Admin-Rollen Auswahl
-  if (id === "ticketsetup-select-admin-roles" && interaction.isRoleSelectMenu()) {
-    const cfg = await getOrCreateConfig(interaction.guild.id);
-    cfg.adminRoleIds = interaction.values;
-    await cfg.save();
-    return interaction.update({
-      embeds: [buildOverviewEmbed(cfg)],
+      embeds: [buildOverviewEmbed(cfg, setupRoles)],
       components: buildOverviewComponents()
     });
   }
@@ -221,8 +391,9 @@ const execute = async (interaction, client) => {
       }
     );
     const cfg = await getOrCreateConfig(interaction.guild.id);
+    const setupRoles = await getSetupRoles(interaction.guild.id);
     return interaction.update({
-      embeds: [buildOverviewEmbed(cfg)],
+      embeds: [buildOverviewEmbed(cfg, setupRoles)],
       components: buildOverviewComponents()
     });
   }
@@ -231,32 +402,29 @@ const execute = async (interaction, client) => {
   // LIVE TICKET AKTIONEN
   // ═══════════════════════════════════════════════════════
 
-  // Ticket erstellen via Kategorie-Auswahl
   if (id === "ticket-create-menu" && interaction.isStringSelectMenu()) {
     const categoryId = interaction.values[0];
     await interaction.deferReply({ ephemeral: true });
 
-    const result = await createTicket(interaction.guild, interaction.user, categoryId);
+    const result = await createTicketV2(interaction.guild, interaction.user, categoryId);
 
-    if (result.error === "setup_missing") {
+    if (result.error === "setup_missing")
       return interaction.editReply({ content: "❌ Das Ticket-System wurde noch nicht eingerichtet." });
-    }
-    if (result.error === "already_open") {
-      return interaction.editReply({
-        content: `❌ Du hast bereits ein offenes Ticket: <#${result.channelId}>`
-      });
-    }
-    if (result.error === "invalid_category") {
+    if (result.error === "already_open")
+      return interaction.editReply({ content: `❌ Du hast bereits ein offenes Ticket: <#${result.channelId}>` });
+    if (result.error === "invalid_category")
       return interaction.editReply({ content: "❌ Ungültige Kategorie." });
-    }
 
-    return interaction.editReply({
-      content: `✅ Dein Ticket wurde erstellt: <#${result.channel.id}>`
-    });
+    return interaction.editReply({ content: `✅ Dein Ticket wurde erstellt: <#${result.channel.id}>` });
   }
 
-  // Ticket schließen – Button drücken → Bestätigung zeigen
-  if (id.startsWith("ticket-close-") && interaction.isButton()) {
+  // Ticket schließen – Bestätigung anzeigen
+  if (
+    id.startsWith("ticket-close-") &&
+    !id.startsWith("ticket-close-confirm-") &&
+    !id.startsWith("ticket-close-cancel-") &&
+    interaction.isButton()
+  ) {
     const channelId = id.replace("ticket-close-", "");
     return interaction.reply({
       embeds: [
@@ -281,19 +449,15 @@ const execute = async (interaction, client) => {
     });
   }
 
-  // Ticket schließen – Bestätigung
   if (id.startsWith("ticket-close-confirm-") && interaction.isButton()) {
     const channelId = id.replace("ticket-close-confirm-", "");
     const channel   = interaction.guild.channels.cache.get(channelId);
-
     if (!channel) return interaction.reply({ content: "❌ Kanal nicht gefunden.", ephemeral: true });
-
     await interaction.deferUpdate();
-    await closeTicket(interaction.guild, channel, interaction.user.id);
+    await closeTicketV2(interaction.guild, channel, interaction.user.id);
     return;
   }
 
-  // Ticket schließen – Abbrechen
   if (id.startsWith("ticket-close-cancel-") && interaction.isButton()) {
     return interaction.update({ content: "❌ Abgebrochen.", embeds: [], components: [] });
   }
@@ -304,30 +468,28 @@ const execute = async (interaction, client) => {
     const channel   = interaction.guild.channels.cache.get(channelId);
     if (!channel) return interaction.reply({ content: "❌ Kanal nicht gefunden.", ephemeral: true });
 
-    const result = await claimTicket(interaction.guild, channel, interaction.user);
+    const result = await claimTicketV2(interaction.guild, channel, interaction.user);
 
-    if (result.error === "not_found") {
+    if (result.error === "not_found")
       return interaction.reply({ content: "❌ Ticket nicht gefunden.", ephemeral: true });
-    }
-    if (result.error === "already_claimed") {
-      return interaction.reply({
-        content: `❌ Dieses Ticket wurde bereits von <@${result.claimedBy}> geclaimt.`,
-        ephemeral: true
-      });
-    }
+    if (result.error === "already_claimed")
+      return interaction.reply({ content: `❌ Bereits geclaimt von <@${result.claimedBy}>.`, ephemeral: true });
 
-    await interaction.reply({
+    return interaction.reply({
       embeds: [
         new EmbedBuilder()
           .setDescription(`📌 Dieses Ticket wurde von ${interaction.user} übernommen.`)
           .setColor(0xfee75c)
       ]
     });
-    return;
   }
 
   // User hinzufügen – Button → Modal
-  if (id.startsWith("ticket-adduser-") && interaction.isButton()) {
+  if (
+    id.startsWith("ticket-adduser-") &&
+    !id.startsWith("ticket-adduser-modal-") &&
+    interaction.isButton()
+  ) {
     const channelId = id.replace("ticket-adduser-", "");
     const modal = new ModalBuilder()
       .setCustomId(`ticket-adduser-modal-${channelId}`)
@@ -343,30 +505,24 @@ const execute = async (interaction, client) => {
           .setRequired(true)
       )
     );
-
     return interaction.showModal(modal);
   }
 
   // User hinzufügen – Modal Submit
   if (id.startsWith("ticket-adduser-modal-") && interaction.isModalSubmit()) {
-    const channelId = id.replace("ticket-adduser-modal-", "");
-    const userId    = interaction.fields.getTextInputValue("user-id").trim();
-
+    const channelId  = id.replace("ticket-adduser-modal-", "");
+    const userId     = interaction.fields.getTextInputValue("user-id").trim();
     await interaction.deferReply({ ephemeral: true });
 
     const targetUser = await interaction.guild.members.fetch(userId).catch(() => null);
-    if (!targetUser) {
-      return interaction.editReply({ content: "❌ User nicht gefunden. Bitte prüfe die ID." });
-    }
+    if (!targetUser) return interaction.editReply({ content: "❌ User nicht gefunden." });
 
     const channel = interaction.guild.channels.cache.get(channelId);
     if (!channel) return interaction.editReply({ content: "❌ Ticket-Kanal nicht gefunden." });
 
-    const result = await addUserToTicket(interaction.guild, channel, targetUser.user);
-
-    if (result.error === "already_added") {
+    const result = await addUserToTicketV2(interaction.guild, channel, targetUser.user);
+    if (result.error === "already_added")
       return interaction.editReply({ content: "❌ Dieser User ist bereits im Ticket." });
-    }
 
     await channel.send({
       embeds: [
@@ -375,56 +531,53 @@ const execute = async (interaction, client) => {
           .setColor(0x57f287)
       ]
     });
-
     return interaction.editReply({ content: `✅ ${targetUser} wurde hinzugefügt.` });
   }
 
   // Higher Staff eskalieren
   if (id.startsWith("ticket-escalate-") && interaction.isButton()) {
-    const cfg = await getOrCreateConfig(interaction.guild.id);
+    const setupRoles = await getSetupRoles(interaction.guild.id);
+    const adminRole  = setupRoles.find(r => r.key === "admin") || setupRoles.find(r => r.key === "owner");
+    const ping = adminRole
+      ? `<@&${adminRole.roleId}>`
+      : "*(keine Admin-Rolle im Role Setup konfiguriert)*";
 
-    const pings = cfg.adminRoleIds.length
-      ? cfg.adminRoleIds.map(r => `<@&${r}>`).join(" ")
-      : "*(keine Admin-Rollen konfiguriert)*";
-
-    await interaction.reply({
-      content: `🚨 **Higher Staff benötigt!** ${pings}\n\n${interaction.user} benötigt Hilfe in diesem Ticket.`
+    return interaction.reply({
+      content: `🚨 **Higher Staff benötigt!** ${ping}\n\n${interaction.user} benötigt Hilfe in diesem Ticket.`
     });
-
-    return;
   }
 };
 
 // ── Setup-Schritte ────────────────────────────────────────────────────────────
 
 async function handleSetupChannels(interaction) {
-  const row1 = new ActionRowBuilder().addComponents(
-    new ChannelSelectMenuBuilder()
-      .setCustomId("ticketsetup-select-create")
-      .setPlaceholder("📌 Ticket-Erstell-Kanal auswählen")
-      .addChannelTypes(ChannelType.GuildText)
-  );
-  const row2 = new ActionRowBuilder().addComponents(
-    new ChannelSelectMenuBuilder()
-      .setCustomId("ticketsetup-select-log")
-      .setPlaceholder("📋 Log-Kanal auswählen")
-      .addChannelTypes(ChannelType.GuildText)
-  );
-  const row3 = new ActionRowBuilder().addComponents(
-    new ChannelSelectMenuBuilder()
-      .setCustomId("ticketsetup-select-claim")
-      .setPlaceholder("📌 Claim-Kanal auswählen (optional)")
-      .addChannelTypes(ChannelType.GuildText)
-  );
-
   return interaction.update({
     embeds: [
       new EmbedBuilder()
-        .setTitle("📌 Schritt 1 – Kanäle konfigurieren")
-        .setDescription("Wähle die drei Kanäle für das Ticket-System.\nDer Claim-Kanal ist optional.")
+        .setTitle("📌 Kanäle konfigurieren")
+        .setDescription("Wähle die Kanäle für das Ticket-System.\nDer Claim-Kanal ist optional.")
         .setColor(0x5865f2)
     ],
-    components: [row1, row2, row3]
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ChannelSelectMenuBuilder()
+          .setCustomId("ticketsetup-select-create")
+          .setPlaceholder("📌 Ticket-Erstell-Kanal auswählen")
+          .addChannelTypes(ChannelType.GuildText)
+      ),
+      new ActionRowBuilder().addComponents(
+        new ChannelSelectMenuBuilder()
+          .setCustomId("ticketsetup-select-log")
+          .setPlaceholder("📋 Log-Kanal auswählen")
+          .addChannelTypes(ChannelType.GuildText)
+      ),
+      new ActionRowBuilder().addComponents(
+        new ChannelSelectMenuBuilder()
+          .setCustomId("ticketsetup-select-claim")
+          .setPlaceholder("📌 Claim-Kanal auswählen (optional)")
+          .addChannelTypes(ChannelType.GuildText)
+      )
+    ]
   });
 }
 
@@ -437,57 +590,32 @@ async function handleSetupCategories(interaction) {
       .setEmoji(c.emoji)
   );
 
-  const row1 = new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId("ticketsetup-select-categories")
-      .setPlaceholder("🎟️ Kategorien auswählen (mehrere möglich)")
-      .setMinValues(1)
-      .setMaxValues(DEFAULT_CATEGORIES.length)
-      .addOptions(options)
-  );
-
-  const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId("ticketsetup-custom-category")
-      .setLabel("➕ Custom Kategorie erstellen")
-      .setStyle(ButtonStyle.Secondary)
-  );
-
   return interaction.update({
     embeds: [
       new EmbedBuilder()
-        .setTitle("🎟️ Schritt 2 – Ticket-Kategorien")
-        .setDescription("Wähle welche Ticket-Arten aktiv sein sollen.")
+        .setTitle("🎟️ Ticket-Kategorien")
+        .setDescription(
+          "**Standard-Kategorien:** Wähle welche aktiv sein sollen.\n" +
+          "**Custom-Kategorie:** Erstelle eine eigene — du kannst danach festlegen welche Role-Setup Rollen benachrichtigt werden."
+        )
         .setColor(0x5865f2)
     ],
-    components: [row1, row2]
-  });
-}
-
-async function handleSetupRoles(interaction) {
-  const row1 = new ActionRowBuilder().addComponents(
-    new RoleSelectMenuBuilder()
-      .setCustomId("ticketsetup-select-support-roles")
-      .setPlaceholder("👮 Support-Rollen auswählen")
-      .setMinValues(1)
-      .setMaxValues(10)
-  );
-  const row2 = new ActionRowBuilder().addComponents(
-    new RoleSelectMenuBuilder()
-      .setCustomId("ticketsetup-select-admin-roles")
-      .setPlaceholder("🛡️ Admin-Rollen auswählen")
-      .setMinValues(0)
-      .setMaxValues(10)
-  );
-
-  return interaction.update({
-    embeds: [
-      new EmbedBuilder()
-        .setTitle("👮 Schritt 3 – Rollen")
-        .setDescription("Support-Rollen erhalten Zugriff auf alle Tickets.\nAdmin-Rollen werden bei Eskalation gepingt.")
-        .setColor(0x5865f2)
-    ],
-    components: [row1, row2]
+    components: [
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId("ticketsetup-select-categories")
+          .setPlaceholder("🎟️ Standard-Kategorien auswählen (mehrere möglich)")
+          .setMinValues(1)
+          .setMaxValues(DEFAULT_CATEGORIES.length)
+          .addOptions(options)
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("ticketsetup-custom-category")
+          .setLabel("➕ Custom Kategorie erstellen")
+          .setStyle(ButtonStyle.Secondary)
+      )
+    ]
   });
 }
 
@@ -496,7 +624,7 @@ async function handleSetupSendPanel(interaction) {
 
   if (!cfg.createChannelId) {
     return interaction.reply({
-      content: "❌ Bitte konfiguriere zuerst den Erstell-Kanal (Schritt 1).",
+      content: "❌ Bitte konfiguriere zuerst den Erstell-Kanal.",
       ephemeral: true
     });
   }
@@ -533,9 +661,7 @@ async function sendTicketPanel(interaction) {
   }
 
   const channel = interaction.guild.channels.cache.get(cfg.createChannelId);
-  if (!channel) {
-    return interaction.reply({ content: "❌ Erstell-Kanal nicht gefunden.", ephemeral: true });
-  }
+  if (!channel) return interaction.reply({ content: "❌ Erstell-Kanal nicht gefunden.", ephemeral: true });
 
   const options = cfg.categories.map(c =>
     new StringSelectMenuOptionBuilder()
@@ -545,20 +671,22 @@ async function sendTicketPanel(interaction) {
       .setEmoji(c.emoji)
   );
 
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId("ticket-create-menu")
-    .setPlaceholder("Ticket-Art auswählen…")
-    .addOptions(options);
-
-  const embed = new EmbedBuilder()
-    .setTitle("🎫 Ticket erstellen")
-    .setDescription("Wähle eine Kategorie aus dem Menü um ein Ticket zu erstellen.\nUnser Team hilft dir so schnell wie möglich!")
-    .setColor(0x5865f2)
-    .setFooter({ text: "Du kannst nur 1 offenes Ticket gleichzeitig haben." });
-
   await channel.send({
-    embeds: [embed],
-    components: [new ActionRowBuilder().addComponents(menu)]
+    embeds: [
+      new EmbedBuilder()
+        .setTitle("🎫 Ticket erstellen")
+        .setDescription("Wähle eine Kategorie aus dem Menü um ein Ticket zu erstellen.\nUnser Team hilft dir so schnell wie möglich!")
+        .setColor(0x5865f2)
+        .setFooter({ text: "Du kannst nur 1 offenes Ticket gleichzeitig haben." })
+    ],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId("ticket-create-menu")
+          .setPlaceholder("Ticket-Art auswählen…")
+          .addOptions(options)
+      )
+    ]
   });
 
   return interaction.update({
@@ -571,11 +699,12 @@ async function sendTicketPanel(interaction) {
   });
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 async function getOrCreateConfig(guildId) {
   let cfg = await TicketConfig.findOne({ guildId });
   if (!cfg) cfg = await TicketConfig.create({ guildId });
   return cfg;
 }
 
-module.exports = { execute };
+module.exports = { execute, showSetupOverview };

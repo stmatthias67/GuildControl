@@ -10,7 +10,7 @@ const {
 } = require("discord.js");
 
 const TicketConfig          = require("../models/TicketConfig");
-const { DEFAULT_CATEGORIES } = require("../utils/ticketSystem");
+const { DEFAULT_CATEGORIES } = require("../utils/ticketManager");
 
 module.exports = {
   data: new SlashCommandBuilder()

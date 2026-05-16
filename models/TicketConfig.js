@@ -4,23 +4,23 @@ const ticketConfigSchema = new mongoose.Schema({
   guildId: { type: String, required: true, unique: true },
 
   // Kanäle
-  createChannelId: { type: String, default: null },   // Wo User Tickets erstellen
-  logChannelId:    { type: String, default: null },   // Ticket Logs
-  claimChannelId:  { type: String, default: null },   // Team Übersicht (optional)
+  createChannelId: { type: String, default: null },
+  logChannelId:    { type: String, default: null },
+  claimChannelId:  { type: String, default: null },
 
-  // Rollen
-  supportRoleIds: { type: [String], default: [] },
-  adminRoleIds:   { type: [String], default: [] },
+  // Rollen werden NICHT mehr hier gespeichert — kommen aus GuildConfig (Role Setup)
 
   // Aktivierte Kategorien
   categories: {
     type: [
       {
-        id:          String,   // z.B. "support", "report", oder custom UUID
-        label:       String,
-        description: String,
-        emoji:       String,
-        custom:      { type: Boolean, default: false }
+        id:             String,
+        label:          String,
+        description:    String,
+        emoji:          String,
+        custom:         { type: Boolean, default: false },
+        // Rollen (aus Role Setup) die bei neuen Tickets in dieser Kategorie gepingt werden
+        notifyRoleIds:  { type: [String], default: [] }
       }
     ],
     default: []
@@ -35,9 +35,8 @@ const ticketConfigSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
-ticketConfigSchema.pre("save", function (next) {
+ticketConfigSchema.pre("save", function() {
   this.updatedAt = new Date();
-  next();
 });
 
 module.exports = mongoose.model("TicketConfig", ticketConfigSchema);
