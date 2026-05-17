@@ -35,8 +35,17 @@ async function createTicket(guild, user, categoryId) {
   const cfg = await TicketConfig.findOne({ guildId: guild.id });
   if (!cfg || !cfg.setupDone) return { error: "setup_missing" };
 
-  const existing = await Ticket.findOne({ guildId: guild.id, userId: user.id, status: "open" });
-  if (existing) return { error: "already_open", channelId: existing.channelId };
+  // Max-Tickets-Check (Standard: 1, konfigurierbar)
+  const maxTickets = cfg.maxTicketsPerUser ?? 1;
+  const openTickets = await Ticket.find({ guildId: guild.id, userId: user.id, status: "open" });
+  if (openTickets.length >= maxTickets) {
+    return {
+      error: "already_open",
+      channelId: openTickets[0].channelId,
+      count: openTickets.length,
+      max: maxTickets
+    };
+  }
 
   const category = cfg.categories.find(c => c.id === categoryId);
   if (!category) return { error: "invalid_category" };
@@ -99,7 +108,7 @@ async function createTicket(guild, user, categoryId) {
     categoryLabel: category.label
   });
 
-  // ── Willkommens-Embed im Ticket (ohne Claim-Button) ───────────────────────
+  // ── Willkommens-Embed im Ticket ───────────────────────────────────────────
   const ticketEmbed = new EmbedBuilder()
     .setTitle(`${category.emoji} ${category.label} – Ticket #${padded}`)
     .setDescription(
@@ -170,13 +179,12 @@ async function createTicket(guild, user, categoryId) {
     }
   }
 
-  // ── Einmalige Log-Nachricht erstellen und Message-ID speichern ────────────
+  // ── Log-Nachricht erstellen ───────────────────────────────────────────────
   if (cfg.logChannelId) {
     const logChannel = guild.channels.cache.get(cfg.logChannelId);
     if (logChannel) {
       const logEmbed = buildOpenLogEmbed(ticket, user, category, padded);
       const logMsg   = await logChannel.send({ embeds: [logEmbed] }).catch(console.error);
-
       if (logMsg) {
         ticket.logMessageId = logMsg.id;
         await ticket.save();
@@ -206,7 +214,6 @@ async function closeTicket(guild, channel, closedBy) {
   const closedByUser = await guild.client.users.fetch(closedBy).catch(() => null);
   const creator      = await guild.client.users.fetch(ticket.userId).catch(() => null);
 
-  // Alle Helfer: claimedBy + addedUsers (ohne den Ersteller)
   const helperIds = [...new Set([
     ticket.claimedBy,
     ...ticket.addedUsers
@@ -216,24 +223,19 @@ async function closeTicket(guild, channel, closedBy) {
     helperIds.map(id => guild.client.users.fetch(id).catch(() => null))
   )).filter(Boolean);
 
-  // ── Bestehende Log-Nachricht updaten ─────────────────────────────────────
   if (cfg?.logChannelId && ticket.logMessageId) {
     const logChannel = guild.channels.cache.get(cfg.logChannelId);
     if (logChannel) {
       try {
         const logMsg = await logChannel.messages.fetch(ticket.logMessageId);
-
-        const files = [];
+        const files  = [];
         if (transcript) {
           const padded = String(ticket.ticketNumber).padStart(4, "0");
           const buf    = Buffer.from(transcript, "utf-8");
           files.push(new AttachmentBuilder(buf, { name: `transcript-${padded}.txt` }));
         }
-
         const updatedEmbed = buildClosedLogEmbed(ticket, creator, closedByUser, helpers);
         await logMsg.edit({ embeds: [updatedEmbed] });
-
-        // Transcript als separater Follow-up (edit unterstützt keine files ohne content)
         if (files.length) {
           await logChannel.send({ reply: { messageReference: ticket.logMessageId }, files }).catch(() =>
             logChannel.send({ files })
@@ -245,7 +247,6 @@ async function closeTicket(guild, channel, closedBy) {
     }
   }
 
-  // Claim-Kanal deaktivieren
   if (cfg?.claimChannelId) {
     await disableClaimMessage(guild, cfg.claimChannelId, channel.id);
   }
@@ -291,12 +292,9 @@ async function claimTicket(guild, channel, staffer) {
   });
 
   const cfg = await TicketConfig.findOne({ guildId: guild.id });
-
   if (cfg?.claimChannelId) {
     await disableClaimMessage(guild, cfg.claimChannelId, channel.id, staffer);
   }
-
-  // Kein sendTicketLog hier — Log wird erst beim Schließen geupdatet
 
   return { success: true };
 }
@@ -317,8 +315,6 @@ async function addUserToTicket(guild, channel, targetUser) {
     AttachFiles:        true
   });
 
-  // Kein sendTicketLog — wird beim Schließen im Embed sichtbar
-
   return { success: true };
 }
 
@@ -334,7 +330,6 @@ async function disableClaimMessage(guild, claimChannelId, ticketChannelId, claim
         row.components?.some(btn => btn.customId === `ticket-claim-${ticketChannelId}`)
       )
     );
-
     if (!claimMsg) return;
 
     const disabledRow = new ActionRowBuilder().addComponents(
@@ -345,7 +340,6 @@ async function disableClaimMessage(guild, claimChannelId, ticketChannelId, claim
         .setStyle(claimer ? ButtonStyle.Success : ButtonStyle.Secondary)
         .setDisabled(true)
     );
-
     await claimMsg.edit({ components: [disabledRow] });
   } catch (err) {
     console.error("[CLAIM] disableClaimMessage error:", err);
@@ -353,10 +347,6 @@ async function disableClaimMessage(guild, claimChannelId, ticketChannelId, claim
 }
 
 // ── Log-Embeds ────────────────────────────────────────────────────────────────
-
-/**
- * Embed das beim Erstellen des Tickets gepostet wird (Status: offen)
- */
 function buildOpenLogEmbed(ticket, user, category, padded) {
   return new EmbedBuilder()
     .setTitle(`🎫 Ticket #${padded} – ${category.emoji} ${category.label}`)
@@ -371,9 +361,6 @@ function buildOpenLogEmbed(ticket, user, category, padded) {
     .setFooter({ text: `Ticket #${padded}` });
 }
 
-/**
- * Embed das beim Schließen in die bestehende Log-Nachricht editiert wird
- */
 function buildClosedLogEmbed(ticket, creator, closedByUser, helpers) {
   const padded = String(ticket.ticketNumber).padStart(4, "0");
 
@@ -381,24 +368,19 @@ function buildClosedLogEmbed(ticket, creator, closedByUser, helpers) {
     ? helpers.map(h => `<@${h.id}>`).join(", ")
     : "*Niemand hat das Ticket übernommen*";
 
-  const closedAt = ticket.closedAt
-    ? `<t:${Math.floor(ticket.closedAt.getTime() / 1000)}:f>`
-    : "*Unbekannt*";
-
-  const createdAt = ticket.createdAt
-    ? `<t:${Math.floor(ticket.createdAt.getTime() / 1000)}:f>`
-    : "*Unbekannt*";
+  const closedAt  = ticket.closedAt  ? `<t:${Math.floor(ticket.closedAt.getTime()  / 1000)}:f>` : "*Unbekannt*";
+  const createdAt = ticket.createdAt ? `<t:${Math.floor(ticket.createdAt.getTime() / 1000)}:f>` : "*Unbekannt*";
 
   return new EmbedBuilder()
     .setTitle(`🔒 Ticket #${padded} – ${ticket.categoryLabel}`)
     .setDescription("📁 Ticket wurde geschlossen.")
     .addFields(
-      { name: "Ersteller",        value: creator ? `<@${creator.id}>` : "*Unbekannt*", inline: true },
-      { name: "Geschlossen von",  value: closedByUser ? `<@${closedByUser.id}>` : "*Unbekannt*", inline: true },
-      { name: "Helfer / Team",    value: helperText, inline: false },
-      { name: "Erstellt",         value: createdAt, inline: true },
-      { name: "Geschlossen",      value: closedAt,  inline: true },
-      { name: "Transcript",       value: "📄 Siehe Anhang", inline: false }
+      { name: "Ersteller",       value: creator       ? `<@${creator.id}>`       : "*Unbekannt*", inline: true },
+      { name: "Geschlossen von", value: closedByUser  ? `<@${closedByUser.id}>`  : "*Unbekannt*", inline: true },
+      { name: "Helfer / Team",   value: helperText, inline: false },
+      { name: "Erstellt",        value: createdAt, inline: true },
+      { name: "Geschlossen",     value: closedAt,  inline: true },
+      { name: "Transcript",      value: "📄 Siehe Anhang", inline: false }
     )
     .setColor(0xed4245)
     .setTimestamp()

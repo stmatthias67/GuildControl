@@ -24,9 +24,69 @@ const {
   TextInputStyle,
 } = require("discord.js");
 
-const TicketConfig = require("../models/TicketConfig");
-const GuildConfig  = require("../models/GuildConfig");
-const Ticket       = require("../models/Ticket");
+const TicketConfig    = require("../models/TicketConfig");
+const GuildConfig     = require("../models/GuildConfig");
+const Ticket          = require("../models/Ticket");
+const { ROLE_DEFINITIONS } = require("../utils/rolePermissions");
+
+// ── Rollen-Hierarchie (höchste zuerst, aus ROLE_DEFINITIONS) ─────────────────
+// Nur Staff-Rollen die für Higher-Staff relevant sind
+const STAFF_HIERARCHY = [
+  "projektleitung",
+  "stv_projektleitung",
+  "teamleitung",
+  "stv_teamleitung",
+  "admin",
+  "test_admin",
+  "moderator",
+  "test_moderator",
+  "supporter",
+  "test_supporter"
+];
+
+/**
+ * Gibt den höchsten Rollen-Key zurück den ein Member im Setup hat.
+ * setupRoles: [{ key, roleId }]
+ * memberRoles: Collection von Discord-Rollen des Members
+ */
+function getHighestStaffKey(member, setupRoles) {
+  for (const key of STAFF_HIERARCHY) {
+    const entry = setupRoles.find(r => r.key === key);
+    if (entry && member.roles.cache.has(entry.roleId)) {
+      return key;
+    }
+  }
+  return null; // kein Staff
+}
+
+/**
+ * Gibt den nächst höheren Staff-Key zurück, der über currentKey liegt.
+ * Überspringt "test_*"-Varianten wenn der User selbst kein Test-Staff ist —
+ * also: test_admin eskaliert zu admin, admin eskaliert zu teamleitung, etc.
+ * Wenn der Caller selbst ein Test-Staff ist, wird die vollständige Rolle gerufen.
+ * Wenn der Caller schon ein vollständiger Staff ist (z.B. admin), wird die nächste
+ * Führungsrolle gerufen (teamleitung etc.).
+ */
+function getNextEscalationKey(currentKey) {
+  const idx = STAFF_HIERARCHY.indexOf(currentKey);
+  if (idx <= 0) return null; // Projektleitung → niemand höher
+
+  // Suche die nächste HÖHERE Rolle (niedrigerer Index = höher)
+  for (let i = idx - 1; i >= 0; i--) {
+    const key = STAFF_HIERARCHY[i];
+    // Wenn aktueller User ein Test-Staff ist → rufe die vollständige Variante
+    if (currentKey.startsWith("test_")) {
+      const fullKey = currentKey.replace("test_", "");
+      return fullKey;
+    }
+    // Wenn aktueller User vollständiger Staff ist → rufe nächste Führungsebene
+    // Überspringe test_* Zwischenstufen
+    if (!key.startsWith("test_")) {
+      return key;
+    }
+  }
+  return null;
+}
 
 const {
   DEFAULT_CATEGORIES,
@@ -149,6 +209,11 @@ function buildOverviewComponents() {
         .setValue("editroles")
         .setEmoji("👮"),
       new StringSelectMenuOptionBuilder()
+        .setLabel("Max. Tickets pro User")
+        .setDescription("Wie viele Tickets ein User gleichzeitig haben darf")
+        .setValue("maxtickets")
+        .setEmoji("🔢"),
+      new StringSelectMenuOptionBuilder()
         .setLabel("Ticket-Panel senden")
         .setDescription("Panel in den Erstell-Kanal posten")
         .setValue("sendpanel")
@@ -209,6 +274,7 @@ const execute = async (interaction, client) => {
       if (value === "channels")   return handleSetupChannels(interaction);
       if (value === "categories") return handleSetupCategories(interaction);
       if (value === "editroles")  return handleEditRoles(interaction);
+      if (value === "maxtickets") return handleSetupMaxTickets(interaction);
       if (value === "sendpanel")  return handleSetupSendPanel(interaction);
     } catch (error) {
       console.error("[SETUP ERROR] ticketsetup-menu:", error);
@@ -475,6 +541,31 @@ const execute = async (interaction, client) => {
     return;
   }
 
+  // Max Tickets Modal Submit
+  if (id === "ticketsetup-modal-maxtickets" && interaction.isModalSubmit()) {
+    try {
+      await interaction.deferUpdate().catch(() => {});
+      const raw = interaction.fields.getTextInputValue("max-tickets-value").trim();
+      const val = parseInt(raw, 10);
+      if (isNaN(val) || val < 1 || val > 10) {
+        await interaction.editReply({ content: "❌ Bitte gib eine Zahl zwischen 1 und 10 ein.", embeds: [], components: buildOverviewComponents() }).catch(() => {});
+        return;
+      }
+      const cfg = await getOrCreateConfig(interaction.guild.id);
+      cfg.maxTicketsPerUser = val;
+      await cfg.save();
+      const setupRoles = await getSetupRoles(interaction.guild.id);
+      await interaction.editReply({
+        embeds: [buildOverviewEmbed(cfg, setupRoles)],
+        components: buildOverviewComponents()
+      }).catch(() => {});
+    } catch (error) {
+      console.error("[SETUP ERROR] ticketsetup-modal-maxtickets:", error);
+      await interaction.editReply({ content: "❌ Fehler beim Speichern.", embeds: [], components: [] }).catch(() => {});
+    }
+    return;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // LIVE TICKET AKTIONEN
   // ═══════════════════════════════════════════════════════════════════════════
@@ -482,25 +573,39 @@ const execute = async (interaction, client) => {
   if (id === "ticket-create-menu" && interaction.isStringSelectMenu()) {
     console.log(`[TICKET CREATE] User: ${interaction.user.id}, Guild: ${interaction.guild.id}`);
     try {
-      await interaction.deferReply({ ephemeral: true });
+      // update() statt deferReply → SelectMenu wird automatisch zurückgesetzt
+      // sodass der User direkt wieder klicken kann
+      await interaction.deferUpdate().catch(() => {});
       const categoryId = interaction.values[0];
       const result     = await createTicketV2(interaction.guild, interaction.user, categoryId);
 
-      if (result.error === "setup_missing")   { await interaction.editReply({ content: "❌ Das Ticket-System wurde noch nicht eingerichtet." }); return; }
-      if (result.error === "already_open")    { await interaction.editReply({ content: `❌ Du hast bereits ein offenes Ticket: <#${result.channelId}>` }); return; }
-      if (result.error === "invalid_category"){ await interaction.editReply({ content: "❌ Ungültige Kategorie." }); return; }
-      if (result.error)                       { await interaction.editReply({ content: `❌ Fehler: ${result.error}` }); return; }
+      if (result.error === "setup_missing") {
+        await interaction.followUp({ content: "❌ Das Ticket-System wurde noch nicht eingerichtet.", ephemeral: true });
+        return;
+      }
+      if (result.error === "already_open") {
+        const msg = result.max > 1
+          ? `❌ Du hast bereits **${result.count}/${result.max}** offene Tickets. Schließe ein Ticket bevor du ein neues erstellst.`
+          : `❌ Du hast bereits ein offenes Ticket: <#${result.channelId}>`;
+        await interaction.followUp({ content: msg, ephemeral: true });
+        return;
+      }
+      if (result.error === "invalid_category") {
+        await interaction.followUp({ content: "❌ Ungültige Kategorie.", ephemeral: true });
+        return;
+      }
+      if (result.error) {
+        await interaction.followUp({ content: `❌ Fehler: ${result.error}`, ephemeral: true });
+        return;
+      }
 
-      await interaction.editReply({ content: `✅ Dein Ticket wurde erstellt: <#${result.channel.id}>` });
+      await interaction.followUp({ content: `✅ Dein Ticket wurde erstellt: <#${result.channel.id}>`, ephemeral: true });
     } catch (error) {
       console.error("[TICKET CREATE] Error:", error);
       const msg = error.message?.includes("buffering timed out")
         ? "❌ Datenbankverbindung timeout. Bitte erneut versuchen."
         : "❌ Fehler beim Erstellen des Tickets.";
-      try {
-        if (interaction.deferred) await interaction.editReply({ content: msg });
-        else await interaction.reply({ content: msg, ephemeral: true });
-      } catch {}
+      await interaction.followUp({ content: msg, ephemeral: true }).catch(() => {});
     }
     return;
   }
@@ -626,9 +731,62 @@ const execute = async (interaction, client) => {
   if (id.startsWith("ticket-escalate-") && interaction.isButton()) {
     try {
       const setupRoles = await getSetupRoles(interaction.guild.id);
-      const adminRole  = setupRoles.find(r => r.key === "admin") || setupRoles.find(r => r.key === "owner");
-      const ping       = adminRole ? `<@&${adminRole.roleId}>` : "*(keine Admin-Rolle im Role Setup)*";
-      await interaction.reply({ content: `🚨 **Higher Staff benötigt!** ${ping}\n\n${interaction.user} benötigt Hilfe in diesem Ticket.` });
+      const member     = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+
+      if (!member) {
+        await interaction.reply({ content: "❌ Dein Member konnte nicht geladen werden.", ephemeral: true });
+        return;
+      }
+
+      // Prüfen ob der User überhaupt Staff ist
+      const callerKey = getHighestStaffKey(member, setupRoles);
+      if (!callerKey) {
+        await interaction.reply({
+          content: "❌ Du bist kein Staff-Mitglied und kannst keinen Higher Staff rufen.",
+          ephemeral: true
+        });
+        return;
+      }
+
+      // Nächst höhere Eskalationsstufe bestimmen
+      const nextKey = getNextEscalationKey(callerKey);
+      if (!nextKey) {
+        await interaction.reply({
+          content: "❌ Du bist bereits auf der höchsten Staff-Ebene. Es gibt niemanden höheren zu rufen.",
+          ephemeral: true
+        });
+        return;
+      }
+
+      const nextRole = setupRoles.find(r => r.key === nextKey);
+      if (!nextRole) {
+        await interaction.reply({
+          content: `❌ Die nächste Eskalationsstufe (**${nextKey}**) ist im Role Setup nicht konfiguriert.`,
+          ephemeral: true
+        });
+        return;
+      }
+
+      // Aktuelle Ticket-Info für den Kontext
+      const channel = interaction.channel;
+      const ticket  = await Ticket.findOne({ channelId: channel.id, status: "open" }).catch(() => null);
+
+      const callerDef = ROLE_DEFINITIONS.find(r => r.key === callerKey);
+      const nextDef   = ROLE_DEFINITIONS.find(r => r.key === nextKey);
+
+      const callerLabel = callerDef?.label ?? callerKey;
+      const nextLabel   = nextDef?.label   ?? nextKey;
+
+      await interaction.reply({
+        content:
+          `🚨 **Higher Staff benötigt!** <@&${nextRole.roleId}>
+
+` +
+          `${interaction.user} (${callerLabel}) benötigt Unterstützung in diesem Ticket.
+` +
+          `Angeforderte Ebene: **${nextLabel}**`
+      });
+
     } catch (error) {
       console.error("[TICKET ESCALATE] Error:", error);
       if (!interaction.replied) await interaction.reply({ content: "❌ Fehler beim Eskalieren.", ephemeral: true }).catch(() => {});
@@ -910,6 +1068,35 @@ async function showCategoryRoleStep(interaction, categories, stepIndex, setupRol
       )
     ]
   }).catch(() => {});
+}
+
+async function handleSetupMaxTickets(interaction) {
+  try {
+    const cfg = await getOrCreateConfig(interaction.guild.id);
+    const current = cfg.maxTicketsPerUser ?? 1;
+
+    const modal = new ModalBuilder()
+      .setCustomId("ticketsetup-modal-maxtickets")
+      .setTitle("Max. Tickets pro User");
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("max-tickets-value")
+          .setLabel(`Aktuelle Einstellung: ${current} — Neue Zahl (1–10)`)
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("z.B. 2")
+          .setRequired(true)
+          .setMinLength(1)
+          .setMaxLength(2)
+      )
+    );
+
+    await interaction.showModal(modal);
+  } catch (error) {
+    console.error("[SETUP ERROR] handleSetupMaxTickets:", error);
+    if (!interaction.replied) await interaction.reply({ content: "❌ Fehler.", ephemeral: true }).catch(() => {});
+  }
 }
 
 module.exports = { execute, showSetupOverview };

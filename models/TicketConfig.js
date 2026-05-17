@@ -8,19 +8,22 @@ const ticketConfigSchema = new mongoose.Schema({
   logChannelId:    { type: String, default: null },
   claimChannelId:  { type: String, default: null },
 
+  // Wie viele offene Tickets ein User gleichzeitig haben darf (Standard: 1)
+  maxTicketsPerUser: { type: Number, default: 1, min: 1, max: 10 },
+
   // Rollen werden NICHT mehr hier gespeichert — kommen aus GuildConfig (Role Setup)
 
   // Aktivierte Kategorien
   categories: {
     type: [
       {
-        id:             String,
-        label:          String,
-        description:    String,
-        emoji:          String,
-        custom:         { type: Boolean, default: false },
+        id:            String,
+        label:         String,
+        description:   String,
+        emoji:         String,
+        custom:        { type: Boolean, default: false },
         // Rollen (aus Role Setup) die bei neuen Tickets in dieser Kategorie gepingt werden
-        notifyRoleIds:  { type: [String], default: [] }
+        notifyRoleIds: { type: [String], default: [] }
       }
     ],
     default: []
