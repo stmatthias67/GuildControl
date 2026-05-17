@@ -64,7 +64,21 @@ async function createTicketV2(guild, user, categoryId) {
   ];
 
   // Support Rollen
-  for (const roleId of cfg.supportRoleIds) {
+  // Kategorie Rollen benutzen
+  const notifyRoles = category.notifyRoleIds || [];
+
+  for (const roleId of notifyRoles) {
+    permOverwrites.push({
+      id: roleId,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.ManageMessages,
+        PermissionFlagsBits.AttachFiles
+      ]
+    });
+  }
     permOverwrites.push({
       id: roleId,
       allow: [
@@ -78,7 +92,21 @@ async function createTicketV2(guild, user, categoryId) {
   }
 
   // Admin Rollen
-  for (const roleId of cfg.adminRoleIds) {
+// Kategorie Rollen benutzen
+  const notifyRoles = category.notifyRoleIds || [];
+
+  for (const roleId of notifyRoles) {
+    permOverwrites.push({
+      id: roleId,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.ManageMessages,
+        PermissionFlagsBits.AttachFiles
+      ]
+    });
+  }
     permOverwrites.push({
       id: roleId,
       allow: [
