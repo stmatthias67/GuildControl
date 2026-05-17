@@ -3,9 +3,9 @@ const mongoose = require("mongoose");
 const ticketSchema = new mongoose.Schema({
   guildId:      { type: String, required: true },
   channelId:    { type: String, required: true, unique: true },
-  userId:       { type: String, required: true },   // Ersteller
+  userId:       { type: String, required: true },
   ticketNumber: { type: Number, required: true },
-  category:     { type: String, required: true },   // category id
+  category:     { type: String, required: true },
   categoryLabel:{ type: String, required: true },
 
   // Claim
@@ -20,7 +20,10 @@ const ticketSchema = new mongoose.Schema({
     default: "open"
   },
 
-  // Transcript (HTML-String oder Plain-Text)
+  // ID der Log-Nachricht im Log-Kanal (wird beim Schließen geupdatet)
+  logMessageId: { type: String, default: null },
+
+  // Transcript
   transcript: { type: String, default: null },
 
   createdAt: { type: Date, default: Date.now },

@@ -47,7 +47,6 @@ async function createTicket(guild, user, categoryId) {
 
   const notifyRoles = category.notifyRoleIds || [];
 
-  // Permissions: User sieht Kanal, Rollen auch, Bot auch — kein Claimer-Zugang hier
   const permOverwrites = [
     { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
     {
@@ -100,7 +99,7 @@ async function createTicket(guild, user, categoryId) {
     categoryLabel: category.label
   });
 
-  // ── Willkommens-Embed im Ticket (OHNE Claim-Button) ──────────────────────
+  // ── Willkommens-Embed im Ticket (ohne Claim-Button) ───────────────────────
   const ticketEmbed = new EmbedBuilder()
     .setTitle(`${category.emoji} ${category.label} – Ticket #${padded}`)
     .setDescription(
@@ -109,14 +108,13 @@ async function createTicket(guild, user, categoryId) {
       `Ein Teammitglied wird sich so bald wie möglich um dich kümmern.`
     )
     .addFields(
-      { name: "Erstellt von", value: `${user}`,                          inline: true },
+      { name: "Erstellt von", value: `${user}`,                             inline: true },
       { name: "Kategorie",    value: `${category.emoji} ${category.label}`, inline: true },
-      { name: "Ticket Nr.",   value: `#${padded}`,                        inline: true }
+      { name: "Ticket Nr.",   value: `#${padded}`,                          inline: true }
     )
     .setColor(0x5865f2)
     .setTimestamp();
 
-  // Nur Close, AddUser, Escalate — KEIN Claim-Button
   const ticketRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`ticket-close-${channel.id}`)
@@ -137,11 +135,10 @@ async function createTicket(guild, user, categoryId) {
 
   await channel.send({ content: `${user}`, embeds: [ticketEmbed], components: [ticketRow] });
 
-  // ── Claim-Nachricht in den Claim-Kanal senden ─────────────────────────────
+  // ── Claim-Nachricht in den Claim-Kanal ───────────────────────────────────
   if (cfg.claimChannelId) {
     const claimChannel = guild.channels.cache.get(cfg.claimChannelId);
     if (claimChannel) {
-      // Rollen-Pings aufbauen
       const pings = notifyRoles.length
         ? notifyRoles.map(id => `<@&${id}>`).join(" ")
         : "";
@@ -150,9 +147,9 @@ async function createTicket(guild, user, categoryId) {
         .setTitle(`📋 Neues Ticket – #${padded}`)
         .setDescription(`Ein neues Ticket wurde erstellt und wartet auf einen Bearbeiter.`)
         .addFields(
-          { name: "Kategorie",  value: `${category.emoji} ${category.label}`, inline: true },
-          { name: "Erstellt von", value: `${user}`,                           inline: true },
-          { name: "Kanal",      value: `<#${channel.id}>`,                    inline: true }
+          { name: "Kategorie",    value: `${category.emoji} ${category.label}`, inline: true },
+          { name: "Erstellt von", value: `${user}`,                             inline: true },
+          { name: "Kanal",        value: `<#${channel.id}>`,                    inline: true }
         )
         .setColor(0x5865f2)
         .setTimestamp();
@@ -173,7 +170,19 @@ async function createTicket(guild, user, categoryId) {
     }
   }
 
-  await sendTicketLog(guild, cfg, "created", { ticket, user, category });
+  // ── Einmalige Log-Nachricht erstellen und Message-ID speichern ────────────
+  if (cfg.logChannelId) {
+    const logChannel = guild.channels.cache.get(cfg.logChannelId);
+    if (logChannel) {
+      const logEmbed = buildOpenLogEmbed(ticket, user, category, padded);
+      const logMsg   = await logChannel.send({ embeds: [logEmbed] }).catch(console.error);
+
+      if (logMsg) {
+        ticket.logMessageId = logMsg.id;
+        await ticket.save();
+      }
+    }
+  }
 
   return { ticket, channel };
 }
@@ -196,9 +205,47 @@ async function closeTicket(guild, channel, closedBy) {
 
   const closedByUser = await guild.client.users.fetch(closedBy).catch(() => null);
   const creator      = await guild.client.users.fetch(ticket.userId).catch(() => null);
-  await sendTicketLog(guild, cfg, "closed", { ticket, user: creator, closedBy: closedByUser, transcript });
 
-  // Claim-Nachricht im Claim-Kanal deaktivieren (Buttons disablen)
+  // Alle Helfer: claimedBy + addedUsers (ohne den Ersteller)
+  const helperIds = [...new Set([
+    ticket.claimedBy,
+    ...ticket.addedUsers
+  ].filter(id => id && id !== ticket.userId))];
+
+  const helpers = (await Promise.all(
+    helperIds.map(id => guild.client.users.fetch(id).catch(() => null))
+  )).filter(Boolean);
+
+  // ── Bestehende Log-Nachricht updaten ─────────────────────────────────────
+  if (cfg?.logChannelId && ticket.logMessageId) {
+    const logChannel = guild.channels.cache.get(cfg.logChannelId);
+    if (logChannel) {
+      try {
+        const logMsg = await logChannel.messages.fetch(ticket.logMessageId);
+
+        const files = [];
+        if (transcript) {
+          const padded = String(ticket.ticketNumber).padStart(4, "0");
+          const buf    = Buffer.from(transcript, "utf-8");
+          files.push(new AttachmentBuilder(buf, { name: `transcript-${padded}.txt` }));
+        }
+
+        const updatedEmbed = buildClosedLogEmbed(ticket, creator, closedByUser, helpers);
+        await logMsg.edit({ embeds: [updatedEmbed] });
+
+        // Transcript als separater Follow-up (edit unterstützt keine files ohne content)
+        if (files.length) {
+          await logChannel.send({ reply: { messageReference: ticket.logMessageId }, files }).catch(() =>
+            logChannel.send({ files })
+          );
+        }
+      } catch (err) {
+        console.error("[LOG] Konnte Log-Nachricht nicht updaten:", err);
+      }
+    }
+  }
+
+  // Claim-Kanal deaktivieren
   if (cfg?.claimChannelId) {
     await disableClaimMessage(guild, cfg.claimChannelId, channel.id);
   }
@@ -227,7 +274,6 @@ async function claimTicket(guild, channel, staffer) {
   ticket.claimedBy = staffer.id;
   await ticket.save();
 
-  // Staffer zum Ticket-Kanal hinzufügen
   await channel.permissionOverwrites.create(staffer, {
     ViewChannel:        true,
     SendMessages:       true,
@@ -236,7 +282,6 @@ async function claimTicket(guild, channel, staffer) {
     AttachFiles:        true
   });
 
-  // Willkommens-Nachricht im Ticket
   await channel.send({
     embeds: [
       new EmbedBuilder()
@@ -247,51 +292,13 @@ async function claimTicket(guild, channel, staffer) {
 
   const cfg = await TicketConfig.findOne({ guildId: guild.id });
 
-  // Claim-Nachricht im Claim-Kanal deaktivieren
   if (cfg?.claimChannelId) {
     await disableClaimMessage(guild, cfg.claimChannelId, channel.id, staffer);
   }
 
-  await sendTicketLog(guild, cfg, "claimed", { ticket, user: staffer });
+  // Kein sendTicketLog hier — Log wird erst beim Schließen geupdatet
 
   return { success: true };
-}
-
-/**
- * Sucht die Claim-Nachricht für einen bestimmten Ticket-Kanal im Claim-Kanal
- * und deaktiviert den Button (disabled).
- */
-async function disableClaimMessage(guild, claimChannelId, ticketChannelId, claimer = null) {
-  try {
-    const claimChannel = guild.channels.cache.get(claimChannelId);
-    if (!claimChannel) return;
-
-    // Letzte 50 Nachrichten im Claim-Kanal durchsuchen
-    const messages = await claimChannel.messages.fetch({ limit: 50 });
-    const claimMsg = messages.find(m => {
-      if (!m.components?.length) return false;
-      // Prüfe ob einer der Buttons die ticketChannelId enthält
-      return m.components.some(row =>
-        row.components?.some(btn => btn.customId === `ticket-claim-${ticketChannelId}`)
-      );
-    });
-
-    if (!claimMsg) return;
-
-    // Button als disabled neu bauen
-    const disabledRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`ticket-claim-${ticketChannelId}`)
-        .setLabel(claimer ? `Übernommen von ${claimer.username}` : "Ticket geschlossen")
-        .setEmoji(claimer ? "✅" : "🔒")
-        .setStyle(claimer ? ButtonStyle.Success : ButtonStyle.Secondary)
-        .setDisabled(true)
-    );
-
-    await claimMsg.edit({ components: [disabledRow] });
-  } catch (err) {
-    console.error("[CLAIM] disableClaimMessage error:", err);
-  }
 }
 
 // ── User hinzufügen ──────────────────────────────────────────────────────────
@@ -310,10 +317,92 @@ async function addUserToTicket(guild, channel, targetUser) {
     AttachFiles:        true
   });
 
-  const cfg = await TicketConfig.findOne({ guildId: guild.id });
-  await sendTicketLog(guild, cfg, "user_added", { ticket, user: targetUser });
+  // Kein sendTicketLog — wird beim Schließen im Embed sichtbar
 
   return { success: true };
+}
+
+// ── Claim-Button deaktivieren ─────────────────────────────────────────────────
+async function disableClaimMessage(guild, claimChannelId, ticketChannelId, claimer = null) {
+  try {
+    const claimChannel = guild.channels.cache.get(claimChannelId);
+    if (!claimChannel) return;
+
+    const messages = await claimChannel.messages.fetch({ limit: 50 });
+    const claimMsg = messages.find(m =>
+      m.components?.some(row =>
+        row.components?.some(btn => btn.customId === `ticket-claim-${ticketChannelId}`)
+      )
+    );
+
+    if (!claimMsg) return;
+
+    const disabledRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`ticket-claim-${ticketChannelId}`)
+        .setLabel(claimer ? `Übernommen von ${claimer.username}` : "Ticket geschlossen")
+        .setEmoji(claimer ? "✅" : "🔒")
+        .setStyle(claimer ? ButtonStyle.Success : ButtonStyle.Secondary)
+        .setDisabled(true)
+    );
+
+    await claimMsg.edit({ components: [disabledRow] });
+  } catch (err) {
+    console.error("[CLAIM] disableClaimMessage error:", err);
+  }
+}
+
+// ── Log-Embeds ────────────────────────────────────────────────────────────────
+
+/**
+ * Embed das beim Erstellen des Tickets gepostet wird (Status: offen)
+ */
+function buildOpenLogEmbed(ticket, user, category, padded) {
+  return new EmbedBuilder()
+    .setTitle(`🎫 Ticket #${padded} – ${category.emoji} ${category.label}`)
+    .setDescription("📂 Ticket ist geöffnet.")
+    .addFields(
+      { name: "Erstellt von", value: `<@${user.id}>`, inline: true },
+      { name: "Kategorie",    value: `${category.emoji} ${category.label}`, inline: true },
+      { name: "Status",       value: "🟢 Offen", inline: true }
+    )
+    .setColor(0x5865f2)
+    .setTimestamp()
+    .setFooter({ text: `Ticket #${padded}` });
+}
+
+/**
+ * Embed das beim Schließen in die bestehende Log-Nachricht editiert wird
+ */
+function buildClosedLogEmbed(ticket, creator, closedByUser, helpers) {
+  const padded = String(ticket.ticketNumber).padStart(4, "0");
+
+  const helperText = helpers.length
+    ? helpers.map(h => `<@${h.id}>`).join(", ")
+    : "*Niemand hat das Ticket übernommen*";
+
+  const closedAt = ticket.closedAt
+    ? `<t:${Math.floor(ticket.closedAt.getTime() / 1000)}:f>`
+    : "*Unbekannt*";
+
+  const createdAt = ticket.createdAt
+    ? `<t:${Math.floor(ticket.createdAt.getTime() / 1000)}:f>`
+    : "*Unbekannt*";
+
+  return new EmbedBuilder()
+    .setTitle(`🔒 Ticket #${padded} – ${ticket.categoryLabel}`)
+    .setDescription("📁 Ticket wurde geschlossen.")
+    .addFields(
+      { name: "Ersteller",        value: creator ? `<@${creator.id}>` : "*Unbekannt*", inline: true },
+      { name: "Geschlossen von",  value: closedByUser ? `<@${closedByUser.id}>` : "*Unbekannt*", inline: true },
+      { name: "Helfer / Team",    value: helperText, inline: false },
+      { name: "Erstellt",         value: createdAt, inline: true },
+      { name: "Geschlossen",      value: closedAt,  inline: true },
+      { name: "Transcript",       value: "📄 Siehe Anhang", inline: false }
+    )
+    .setColor(0xed4245)
+    .setTimestamp()
+    .setFooter({ text: `Ticket #${padded}` });
 }
 
 // ── Transcript generieren ────────────────────────────────────────────────────
@@ -333,53 +422,13 @@ async function generateTranscript(channel) {
   return lines.join("\n");
 }
 
-// ── Log senden ───────────────────────────────────────────────────────────────
-async function sendTicketLog(guild, cfg, action, data) {
-  if (!cfg?.logChannelId) return;
-  const logChannel = guild.channels.cache.get(cfg.logChannelId);
-  if (!logChannel) return;
-
-  const { ticket, user, closedBy, transcript } = data;
-  const padded = String(ticket.ticketNumber).padStart(4, "0");
-
-  const colors = { created: 0x5865f2, closed: 0xed4245, claimed: 0xfee75c, user_added: 0x57f287 };
-  const titles = {
-    created:    `🎫 Ticket #${padded} erstellt`,
-    closed:     `🔒 Ticket #${padded} geschlossen`,
-    claimed:    `📌 Ticket #${padded} geclaimt`,
-    user_added: `👥 User zu Ticket #${padded} hinzugefügt`
-  };
-
-  const embed = new EmbedBuilder()
-    .setTitle(titles[action] ?? `Ticket #${padded} – ${action}`)
-    .setColor(colors[action] ?? 0x99aab5)
-    .setTimestamp()
-    .addFields(
-      { name: "Kategorie",  value: ticket.categoryLabel, inline: true },
-      { name: "Ticket Nr.", value: `#${padded}`,          inline: true }
-    );
-
-  if (user)     embed.addFields({ name: "User",              value: `<@${user.id}>`,     inline: true });
-  if (closedBy) embed.addFields({ name: "Geschlossen von",   value: `<@${closedBy.id}>`, inline: true });
-
-  const files = [];
-  if (action === "closed" && transcript) {
-    const buf = Buffer.from(transcript, "utf-8");
-    files.push(new AttachmentBuilder(buf, { name: `transcript-${padded}.txt` }));
-    embed.addFields({ name: "Transcript", value: "📄 Siehe Anhang", inline: false });
-  }
-
-  await logChannel.send({ embeds: [embed], files }).catch(console.error);
-}
-
 // ── Exports ───────────────────────────────────────────────────────────────────
 module.exports = {
   DEFAULT_CATEGORIES,
-  createTicketV2:   createTicket,
-  closeTicketV2:    closeTicket,
-  claimTicketV2:    claimTicket,
+  createTicketV2:    createTicket,
+  closeTicketV2:     closeTicket,
+  claimTicketV2:     claimTicket,
   addUserToTicketV2: addUserToTicket,
   generateTranscript,
-  sendTicketLog,
   nextTicketNumber
 };
