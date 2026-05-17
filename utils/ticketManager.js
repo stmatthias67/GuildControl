@@ -118,6 +118,7 @@ async function createTicketV2(guild, user, categoryId) {
         PermissionFlagsBits.AttachFiles
       ]
     });
+  }
 
   // Bot selbst
   permOverwrites.push({
