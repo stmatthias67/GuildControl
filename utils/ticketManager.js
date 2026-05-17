@@ -92,7 +92,7 @@ async function createTicketV2(guild, user, categoryId) {
   }
 
   // Admin Rollen
-// Kategorie Rollen benutzen
+  // Kategorie Rollen benutzen
   const notifyRoles = category.notifyRoleIds || [];
 
   for (const roleId of notifyRoles) {
@@ -118,7 +118,6 @@ async function createTicketV2(guild, user, categoryId) {
         PermissionFlagsBits.AttachFiles
       ]
     });
-  }
 
   // Bot selbst
   permOverwrites.push({
@@ -194,7 +193,6 @@ async function createTicketV2(guild, user, categoryId) {
   await sendTicketLog(guild, cfg, "created", { ticket, user, category });
 
   return { ticket, channel };
-}
 
 // ── Ticket schließen (neues System) ─────────────────────────────────────────
 async function closeTicketV2(guild, channel, closedBy) {
