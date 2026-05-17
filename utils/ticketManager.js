@@ -298,11 +298,13 @@ async function sendTicketLog(guild, cfg, action, data) {
 // ═════════════════════════════════════════════════════════════════════════════
 module.exports = {
   DEFAULT_CATEGORIES,
-  createTicket,
-  closeTicket,
-  claimTicket,
-  addUserToTicket,
+
+  createTicketV2: createTicket,
+  closeTicketV2: closeTicket,
+  claimTicketV2: claimTicket,
+  addUserToTicketV2: addUserToTicket,
+
   generateTranscript,
   sendTicketLog,
-  nextTicketNumber,
+  nextTicketNumber
 };
