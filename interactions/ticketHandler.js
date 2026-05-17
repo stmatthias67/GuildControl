@@ -388,6 +388,22 @@ const execute = async (interaction, client) => {
     return;
   }
 
+  // Zurück zur Übersicht (aus Kategorien, Rollen-Flow, Panel)
+  if (id === "ticketsetup-back-overview" && interaction.isButton()) {
+    try {
+      await interaction.deferUpdate().catch(() => {});
+      const cfg        = await getOrCreateConfig(interaction.guild.id);
+      const setupRoles = await getSetupRoles(interaction.guild.id);
+      await interaction.editReply({
+        embeds: [buildOverviewEmbed(cfg, setupRoles)],
+        components: buildOverviewComponents()
+      }).catch(() => {});
+    } catch (error) {
+      console.error("[SETUP ERROR] ticketsetup-back-overview:", error);
+    }
+    return;
+  }
+
   // ── Panel senden ──────────────────────────────────────────────────────────
 
   if (id === "ticketsetup-confirm-sendpanel") {
@@ -717,6 +733,12 @@ async function handleSetupCategories(interaction) {
             .setMinValues(1)
             .setMaxValues(DEFAULT_CATEGORIES.length)
             .addOptions(options)
+        ),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("ticketsetup-back-overview")
+            .setLabel("← Zurück zur Übersicht")
+            .setStyle(ButtonStyle.Secondary)
         )
       ]
     });
@@ -784,7 +806,8 @@ async function handleSetupSendPanel(interaction) {
       ],
       components: [
         new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId("ticketsetup-confirm-sendpanel").setLabel("Panel jetzt senden").setStyle(ButtonStyle.Success)
+          new ButtonBuilder().setCustomId("ticketsetup-confirm-sendpanel").setLabel("Panel jetzt senden").setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId("ticketsetup-back-overview").setLabel("← Zurück zur Übersicht").setStyle(ButtonStyle.Secondary)
         )
       ]
     });
@@ -879,6 +902,10 @@ async function showCategoryRoleStep(interaction, categories, stepIndex, setupRol
         new ButtonBuilder()
           .setCustomId(`ticketsetup-catroles-skip-${stepIndex}`)
           .setLabel("Keine Benachrichtigung / überspringen")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId("ticketsetup-back-overview")
+          .setLabel("← Zurück zur Übersicht")
           .setStyle(ButtonStyle.Secondary)
       )
     ]
