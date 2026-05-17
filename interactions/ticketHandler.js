@@ -725,46 +725,42 @@ const execute = async (interaction, client) => {
     return;
   }
 
-  // Ticket claimen
+  // Ticket claimen (Button kommt aus dem Claim-Kanal)
   if (id.startsWith("ticket-claim-") && interaction.isButton()) {
-    console.log(`[TICKET CLAIM] User: ${interaction.user.id}, Channel: ${id}`);
+    console.log(`[TICKET CLAIM] User: ${interaction.user.id}, CustomId: ${id}`);
     
     try {
+      // Sofort deferUpdate, damit der Claim-Kanal-Button nicht "failed" zeigt
+      await interaction.deferUpdate().catch(() => {});
+
       const channelId = id.replace("ticket-claim-", "");
-      const channel = interaction.guild.channels.cache.get(channelId);
+      const channel   = interaction.guild.channels.cache.get(channelId);
       
       if (!channel) {
-        await interaction.reply({ content: "❌ Kanal nicht gefunden.", ephemeral: true });
+        await interaction.followUp({ content: "❌ Ticket-Kanal nicht gefunden.", ephemeral: true });
         return;
       }
 
       const result = await claimTicketV2(interaction.guild, channel, interaction.user);
 
       if (result.error === "not_found") {
-        await interaction.reply({ content: "❌ Ticket nicht gefunden.", ephemeral: true });
+        await interaction.followUp({ content: "❌ Ticket nicht gefunden.", ephemeral: true });
         return;
       }
       
       if (result.error === "already_claimed") {
-        await interaction.reply({ content: `❌ Bereits geclaimt von <@${result.claimedBy}>.`, ephemeral: true });
+        await interaction.followUp({ content: `❌ Bereits geclaimt von <@${result.claimedBy}>.`, ephemeral: true });
         return;
       }
 
-      await interaction.reply({
-        embeds: [
-          new EmbedBuilder()
-            .setDescription(`📌 Dieses Ticket wurde von ${interaction.user} übernommen.`)
-            .setColor(0xfee75c)
-        ]
-      });
-      
+      // Bestätigung nur für den Staffer ephemeral (die Nachricht im Ticket-Kanal
+      // kommt bereits aus claimTicketV2 in ticketManager.js)
+      await interaction.followUp({ content: `✅ Du hast Ticket <#${channel.id}> übernommen.`, ephemeral: true });
       console.log(`[TICKET CLAIM] Erfolgreich geclaimt von ${interaction.user.id}`);
       
     } catch (error) {
       console.error("[TICKET CLAIM] Error:", error);
-      if (!interaction.replied) {
-        await interaction.reply({ content: "❌ Fehler beim Claimen des Tickets.", ephemeral: true }).catch(() => {});
-      }
+      await interaction.followUp({ content: "❌ Fehler beim Claimen des Tickets.", ephemeral: true }).catch(() => {});
     }
     return;
   }
