@@ -326,8 +326,7 @@ const execute = async (interaction, client) => {
             new EmbedBuilder()
               .setTitle("⚠️ Keine Rollen konfiguriert")
               .setDescription(
-                "Kategorien wurden gespeichert, aber im **Rollen Setup** sind noch keine Rollen konfiguriert.
-" +
+                "Kategorien wurden gespeichert, aber im **Rollen Setup** sind noch keine Rollen konfiguriert." +
                 "Ohne Rollen werden bei neuen Tickets keine Mitarbeiter benachrichtigt."
               )
               .setColor(0xfee75c)
