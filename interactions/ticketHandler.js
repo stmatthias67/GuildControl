@@ -304,98 +304,31 @@ const execute = async (interaction, client) => {
     return;
   }
 
-  // Kategorien-Auswahl (Standard-Kategorien)
+  // Kategorien-Auswahl → Kategorien speichern, dann Rollen-Zuweisung Schritt für Schritt
   if (id === "ticketsetup-select-categories" && interaction.isStringSelectMenu()) {
     try {
       await interaction.deferUpdate().catch(() => {});
       const cfg = await getOrCreateConfig(interaction.guild.id);
       const selected = interaction.values;
-      const customs = cfg.categories.filter(c => c.custom);
-      const standards = DEFAULT_CATEGORIES.filter(c => selected.includes(c.id));
-      cfg.categories = [...standards, ...customs];
+      // Kategorien speichern (Rollen werden im nächsten Schritt zugewiesen)
+      cfg.categories = DEFAULT_CATEGORIES
+        .filter(c => selected.includes(c.id))
+        .map(c => ({ ...c, notifyRoleIds: [] }));
       await cfg.save();
-      clearSetupRolesCache(interaction.guild.id);
-      const setupRoles = await getSetupRoles(interaction.guild.id);
-      await interaction.editReply({
-        embeds: [buildOverviewEmbed(cfg, setupRoles)],
-        components: buildOverviewComponents()
-      }).catch(() => {});
-    } catch (error) {
-      console.error("[SETUP ERROR] ticketsetup-select-categories:", error);
-      await interaction.editReply({ content: "❌ Fehler beim Speichern der Kategorien.", embeds: [], components: [] }).catch(() => {});
-    }
-    return;
-  }
-
-  // Custom Kategorie – Button → Modal öffnen
-  if (id === "ticketsetup-custom-category") {
-    try {
-      const modal = new ModalBuilder()
-        .setCustomId("ticketsetup-modal-customcat")
-        .setTitle("Custom Ticket Kategorie");
-
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId("cat-label")
-            .setLabel("Name der Kategorie")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-            .setMaxLength(32)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId("cat-description")
-            .setLabel("Beschreibung")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true)
-            .setMaxLength(60)
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId("cat-emoji")
-            .setLabel("Emoji (einzelnes Zeichen, z.B. 🌟)")
-            .setStyle(TextInputStyle.Short)
-            .setRequired(false)
-            .setMaxLength(4)
-        )
-      );
-
-      await interaction.showModal(modal);
-    } catch (error) {
-      console.error("[SETUP ERROR] ticketsetup-custom-category:", error);
-      if (!interaction.replied) {
-        await interaction.reply({ content: "❌ Fehler beim Öffnen des Modals.", ephemeral: true }).catch(() => {});
-      }
-    }
-    return;
-  }
-
-  // Custom Kategorie – Modal Submit → danach Rollen-Auswahl zeigen
-  if (id === "ticketsetup-modal-customcat" && interaction.isModalSubmit()) {
-    try {
-      await interaction.deferUpdate().catch(() => {});
-      
-      const label = interaction.fields.getTextInputValue("cat-label");
-      const description = interaction.fields.getTextInputValue("cat-description");
-      const emoji = interaction.fields.getTextInputValue("cat-emoji") || "🎫";
-      const customId = `custom-${Date.now()}`;
-
-      const cfg = await getOrCreateConfig(interaction.guild.id);
-      cfg.categories.push({ id: customId, label, description, emoji, custom: true, notifyRoleIds: [] });
-      await cfg.save();
-      clearSetupRolesCache(interaction.guild.id);
 
       const setupRoles = await getSetupRoles(interaction.guild.id);
 
       if (setupRoles.length === 0) {
+        // Keine Role-Setup Rollen → direkt zur Übersicht
+        const updatedCfg = await getOrCreateConfig(interaction.guild.id);
         await interaction.editReply({
           embeds: [
             new EmbedBuilder()
               .setTitle("⚠️ Keine Rollen konfiguriert")
               .setDescription(
-                `Kategorie **${emoji} ${label}** wurde erstellt.\n\n` +
-                "Im Role Setup sind noch keine Rollen konfiguriert. Führe zuerst das **Rollen Setup** durch, um Benachrichtigungs-Rollen setzen zu können."
+                "Kategorien wurden gespeichert, aber im **Rollen Setup** sind noch keine Rollen konfiguriert.
+" +
+                "Ohne Rollen werden bei neuen Tickets keine Mitarbeiter benachrichtigt."
               )
               .setColor(0xfee75c)
           ],
@@ -404,108 +337,83 @@ const execute = async (interaction, client) => {
         return;
       }
 
-      const options = setupRoles.map(r => {
-        const roleName = r.key.charAt(0).toUpperCase() + r.key.slice(1);
-        return new StringSelectMenuOptionBuilder()
-          .setLabel(roleName)
-          .setDescription(`ID: ${r.roleId}`)
-          .setValue(`${customId}::${r.roleId}`);
-      });
-
-      await interaction.editReply({
-        embeds: [
-          new EmbedBuilder()
-            .setTitle(`🎟️ Kategorie: ${emoji} ${label}`)
-            .setDescription(
-              "Wähle welche **Role-Setup Rollen** bei neuen Tickets in dieser Kategorie benachrichtigt werden sollen.\n\n" +
-              "Nur Rollen aus dem Rollen Setup sind verfügbar."
-            )
-            .setColor(0x5865f2)
-        ],
-        components: [
-          new ActionRowBuilder().addComponents(
-            new StringSelectMenuBuilder()
-              .setCustomId("ticketsetup-customcat-roles")
-              .setPlaceholder("Benachrichtigungs-Rollen auswählen (mehrere möglich)")
-              .setMinValues(0)
-              .setMaxValues(setupRoles.length)
-              .addOptions(options)
-          ),
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`ticketsetup-customcat-noroles::${customId}`)
-              .setLabel("Keine Benachrichtigung")
-              .setStyle(ButtonStyle.Secondary)
-          )
-        ]
-      }).catch(() => {});
+      // Ersten Rollen-Zuweisungs-Schritt starten
+      await showCategoryRoleStep(interaction, cfg.categories, 0, setupRoles);
     } catch (error) {
-      console.error("[SETUP ERROR] ticketsetup-modal-customcat:", error);
-      await interaction.editReply({ content: "❌ Fehler beim Erstellen der Kategorie.", embeds: [], components: [] }).catch(() => {});
+      console.error("[SETUP ERROR] ticketsetup-select-categories:", error);
+      await interaction.editReply({ content: "❌ Fehler beim Speichern der Kategorien.", embeds: [], components: [] }).catch(() => {});
     }
     return;
   }
 
-  // Custom Kategorie – Rollen gespeichert
-  if (id === "ticketsetup-customcat-roles" && interaction.isStringSelectMenu()) {
+  // Rollen für eine Kategorie auswählen (Format: "ticketsetup-catroles-INDEX")
+  if (id.startsWith("ticketsetup-catroles-") && interaction.isStringSelectMenu()) {
     try {
       await interaction.deferUpdate().catch(() => {});
+      const stepIndex = parseInt(id.replace("ticketsetup-catroles-", ""), 10);
       const cfg = await getOrCreateConfig(interaction.guild.id);
-
-      const roleIdsByCategory = {};
-      for (const val of interaction.values) {
-        const [catId, roleId] = val.split("::");
-        if (!roleIdsByCategory[catId]) roleIdsByCategory[catId] = [];
-        roleIdsByCategory[catId].push(roleId);
-      }
-
-      for (const cat of cfg.categories) {
-        if (roleIdsByCategory[cat.id]) {
-          cat.notifyRoleIds = roleIdsByCategory[cat.id];
-        }
-      }
-      cfg.markModified("categories");
-      await cfg.save();
-      clearSetupRolesCache(interaction.guild.id);
-      
       const setupRoles = await getSetupRoles(interaction.guild.id);
-      await interaction.editReply({
-        embeds: [buildOverviewEmbed(cfg, setupRoles)],
-        components: buildOverviewComponents()
-      }).catch(() => {});
+
+      // Gewählte RoleIds speichern für diese Kategorie
+      const chosenRoleIds = interaction.values; // direkt roleIds
+      if (cfg.categories[stepIndex]) {
+        cfg.categories[stepIndex].notifyRoleIds = chosenRoleIds;
+        cfg.markModified("categories");
+        await cfg.save();
+      }
+
+      const nextIndex = stepIndex + 1;
+      if (nextIndex < cfg.categories.length) {
+        await showCategoryRoleStep(interaction, cfg.categories, nextIndex, setupRoles);
+      } else {
+        // Alle Kategorien konfiguriert → Übersicht
+        clearSetupRolesCache(interaction.guild.id);
+        const finalRoles = await getSetupRoles(interaction.guild.id);
+        await interaction.editReply({
+          embeds: [buildOverviewEmbed(cfg, finalRoles)],
+          components: buildOverviewComponents()
+        }).catch(() => {});
+      }
     } catch (error) {
-      console.error("[SETUP ERROR] ticketsetup-customcat-roles:", error);
+      console.error("[SETUP ERROR] ticketsetup-catroles:", error);
       await interaction.editReply({ content: "❌ Fehler beim Speichern der Rollen.", embeds: [], components: [] }).catch(() => {});
     }
     return;
   }
 
-  // Custom Kategorie – Keine Benachrichtigung (Skip)
-  if (id.startsWith("ticketsetup-customcat-noroles::") && interaction.isButton()) {
+  // Keine Rollen für diese Kategorie (Skip-Button, Format: "ticketsetup-catroles-skip-INDEX")
+  if (id.startsWith("ticketsetup-catroles-skip-") && interaction.isButton()) {
     try {
       await interaction.deferUpdate().catch(() => {});
-      const customCatId = id.replace("ticketsetup-customcat-noroles::", "");
+      const stepIndex = parseInt(id.replace("ticketsetup-catroles-skip-", ""), 10);
       const cfg = await getOrCreateConfig(interaction.guild.id);
-      const cat = cfg.categories.find(c => c.id === customCatId);
-      if (cat) {
-        cat.notifyRoleIds = [];
+      const setupRoles = await getSetupRoles(interaction.guild.id);
+
+      if (cfg.categories[stepIndex]) {
+        cfg.categories[stepIndex].notifyRoleIds = [];
         cfg.markModified("categories");
         await cfg.save();
-        clearSetupRolesCache(interaction.guild.id);
       }
-      const setupRoles = await getSetupRoles(interaction.guild.id);
-      await interaction.editReply({
-        embeds: [buildOverviewEmbed(cfg, setupRoles)],
-        components: buildOverviewComponents()
-      }).catch(() => {});
+
+      const nextIndex = stepIndex + 1;
+      if (nextIndex < cfg.categories.length) {
+        await showCategoryRoleStep(interaction, cfg.categories, nextIndex, setupRoles);
+      } else {
+        clearSetupRolesCache(interaction.guild.id);
+        const finalRoles = await getSetupRoles(interaction.guild.id);
+        await interaction.editReply({
+          embeds: [buildOverviewEmbed(cfg, finalRoles)],
+          components: buildOverviewComponents()
+        }).catch(() => {});
+      }
     } catch (error) {
-      console.error("[SETUP ERROR] ticketsetup-customcat-noroles:", error);
+      console.error("[SETUP ERROR] ticketsetup-catroles-skip:", error);
       await interaction.editReply({ content: "❌ Fehler beim Überspringen.", embeds: [], components: [] }).catch(() => {});
     }
     return;
   }
 
-  // Panel senden – Bestätigungs-Button
+    // Panel senden – Bestätigungs-Button
   if (id === "ticketsetup-confirm-sendpanel") {
     try {
       await interaction.deferUpdate().catch(() => {});
@@ -924,26 +832,17 @@ async function handleSetupCategories(interaction) {
       embeds: [
         new EmbedBuilder()
           .setTitle("🎟️ Ticket-Kategorien")
-          .setDescription(
-            "**Standard-Kategorien:** Wähle welche aktiv sein sollen.\n" +
-            "**Custom-Kategorie:** Erstelle eine eigene — du kannst danach festlegen welche Role-Setup Rollen benachrichtigt werden."
-          )
+          .setDescription("Wähle welche Ticket-Arten aktiv sein sollen.")
           .setColor(0x5865f2)
       ],
       components: [
         new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
             .setCustomId("ticketsetup-select-categories")
-            .setPlaceholder("🎟️ Standard-Kategorien auswählen (mehrere möglich)")
+            .setPlaceholder("🎟️ Kategorien auswählen (mehrere möglich)")
             .setMinValues(1)
             .setMaxValues(DEFAULT_CATEGORIES.length)
             .addOptions(options)
-        ),
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId("ticketsetup-custom-category")
-            .setLabel("➕ Custom Kategorie erstellen")
-            .setStyle(ButtonStyle.Secondary)
         )
       ]
     });
@@ -1048,6 +947,57 @@ async function sendTicketPanel(interaction) {
     console.error("[SETUP ERROR] sendTicketPanel:", error);
     await interaction.editReply({ content: "❌ Fehler beim Senden des Panels.", embeds: [], components: buildOverviewComponents() }).catch(() => {});
   }
+}
+
+
+// ── Rollen-Zuweisung pro Kategorie ───────────────────────────────────────────
+
+/**
+ * Zeigt den Rollen-Auswahl-Schritt für eine bestimmte Kategorie.
+ * stepIndex: Index in cfg.categories
+ * setupRoles: [{ key, roleId }] aus GuildConfig
+ */
+async function showCategoryRoleStep(interaction, categories, stepIndex, setupRoles) {
+  const cat   = categories[stepIndex];
+  const total = categories.length;
+
+  const options = setupRoles.map(r => {
+    const label = r.key.charAt(0).toUpperCase() + r.key.slice(1);
+    return new StringSelectMenuOptionBuilder()
+      .setLabel(label)
+      .setDescription(`Rolle: <@&${r.roleId}>`)
+      .setValue(r.roleId); // Value = direkt die roleId
+  });
+
+  await interaction.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setTitle(`👮 Rollen für ${cat.emoji} ${cat.label} (${stepIndex + 1}/${total})`)
+        .setDescription(
+          `Wähle welche **Role-Setup Rollen** bei neuen **${cat.label}**-Tickets im Claim-Kanal benachrichtigt werden.
+
+` +
+          "Du kannst mehrere Rollen wählen oder den Schritt überspringen."
+        )
+        .setColor(0x5865f2)
+    ],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`ticketsetup-catroles-${stepIndex}`)
+          .setPlaceholder("Rollen auswählen...")
+          .setMinValues(1)
+          .setMaxValues(setupRoles.length)
+          .addOptions(options)
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`ticketsetup-catroles-skip-${stepIndex}`)
+          .setLabel("Keine Benachrichtigung für diese Kategorie")
+          .setStyle(ButtonStyle.Secondary)
+      )
+    ]
+  }).catch(() => {});
 }
 
 module.exports = { execute, showSetupOverview };
