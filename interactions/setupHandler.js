@@ -1,12 +1,25 @@
+'use strict';
+
+/**
+ * setupHandler.js
+ * Zentraler Router für alle Setup-Interaktionen.
+ *
+ * Präfixe:
+ *   role-setup-*       → roleSetup.js
+ *   ticketsetup-*      → ticketHandler.js
+ *   ticket-*           → ticketHandler.js
+ *   securitysetup-*    → securitySetupHandler.js
+ *   setup-*            → Haupt-Setup (dieses File)
+ */
+
 const GuildConfig = require("../models/GuildConfig");
-const {
-  startRoleSetup,
-  handleRoleSetupInteraction
-} = require("./roleSetup");
+const { startRoleSetup, handleRoleSetupInteraction } = require("./roleSetup");
 const { showSetupOverview: showTicketSetup, execute: handleTicketInteraction } = require("./ticketHandler");
+const { showSetupOverview: showSecuritySetup, execute: handleSecurityInteraction } = require("./securitySetupHandler");
 
 module.exports = {
   name: "interactionCreate",
+
   async execute(interaction, client) {
 
     if (
@@ -17,60 +30,66 @@ module.exports = {
       !interaction.isModalSubmit()
     ) return;
 
-    // 🔧 Role Setup Interactions
-    if (interaction.customId.startsWith("role-setup-")) {
+    const id = interaction.customId;
+
+    // ── Role Setup ────────────────────────────────────────────────────────────
+    if (id.startsWith("role-setup-")) {
       return handleRoleSetupInteraction(interaction);
     }
 
-    // 🎫 Ticket Interactions (Setup & Live)
-    if (
-      interaction.customId.startsWith("ticketsetup-") ||
-      interaction.customId.startsWith("ticket-")
-    ) {
+    // ── Ticket System (Setup + Live) ──────────────────────────────────────────
+    if (id.startsWith("ticketsetup-") || id.startsWith("ticket-")) {
       return handleTicketInteraction(interaction, client);
     }
 
-    // 📋 Setup Menu (StringSelectMenu)
-    if (interaction.isStringSelectMenu()) {
-      if (interaction.customId === "setup-menu") {
-        const value = interaction.values[0];
+    // ── Security System ───────────────────────────────────────────────────────
+    if (id.startsWith("securitysetup-")) {
+      return handleSecurityInteraction(interaction, client);
+    }
 
-        // 👑 Rollen Setup
-        if (value === "roles") {
-          return startRoleSetup(interaction);
-        }
+    // ── Setup Haupt-Menü ──────────────────────────────────────────────────────
+    if (interaction.isStringSelectMenu() && id === "setup-menu") {
+      const value = interaction.values[0];
 
-        // 🎫 Ticket Setup
-        if (value === "tickets") {
-          return showTicketSetup(interaction);
-        }
+      if (value === "roles") {
+        return startRoleSetup(interaction);
+      }
 
-        // 🛡️ Security Setup
-        if (value === "security") {
-          return interaction.update({
-            content: "🛡️ Security Setup kommt jetzt als nächstes!",
-            embeds: [],
-            components: []
-          });
-        }
+      if (value === "tickets") {
+        return showTicketSetup(interaction);
+      }
+
+      if (value === "security") {
+        return showSecuritySetup(interaction);
+      }
+
+      // Platzhalter für noch nicht implementierte Systeme
+      const placeholders = {
+        voice:        "🔊 Voice Setup",
+        rank:         "📈 Rank Setup",
+        applications: "📋 Bewerbungs Setup",
+        stats:        "📊 Statistik Setup",
+      };
+
+      if (placeholders[value]) {
+        return interaction.reply({
+          content: `${placeholders[value]} wird bald verfügbar sein!`,
+          ephemeral: true
+        });
       }
     }
 
-    // 🚀 Auto Setup
-    if (interaction.customId === "setup-create-all") {
+    // ── Auto Setup ────────────────────────────────────────────────────────────
+    if (id === "setup-create-all") {
       await interaction.deferReply({ ephemeral: true });
 
       try {
         const roles = ["Supporter", "Mitglied"];
-
         for (const roleName of roles) {
-          const existingRole = interaction.guild.roles.cache.find(
-            r => r.name === roleName
-          );
-
-          if (!existingRole) {
+          const exists = interaction.guild.roles.cache.find(r => r.name === roleName);
+          if (!exists) {
             await interaction.guild.roles.create({
-              name: roleName,
+              name:   roleName,
               reason: "GuildControl Auto Setup"
             });
           }
@@ -80,41 +99,35 @@ module.exports = {
           { guildId: interaction.guild.id },
           {
             guildId: interaction.guild.id,
-            systems: {
-              moderation: true,
-              tickets: true,
-              logs: true
-            }
+            systems: { moderation: true, tickets: true, logs: true }
           },
           { upsert: true, new: true }
         );
 
-        await interaction.editReply({
-          content: "✅ GuildControl Setup erfolgreich abgeschlossen!"
-        });
+        await interaction.editReply({ content: "✅ GuildControl Auto-Setup erfolgreich abgeschlossen!" });
 
-      } catch (error) {
-        console.error(error);
-        await interaction.editReply({
-          content: "❌ Fehler beim Setup!"
-        });
+      } catch (err) {
+        console.error("[Setup] Auto Setup Fehler:", err);
+        await interaction.editReply({ content: "❌ Fehler beim Auto-Setup!" });
       }
+
+      return;
     }
 
-    // ❌ Setup abbrechen
-    if (interaction.customId === "setup-cancel") {
+    // ── Setup abbrechen ───────────────────────────────────────────────────────
+    if (id === "setup-cancel") {
       return interaction.update({
-        content: "❌ Setup abgebrochen.",
-        embeds: [],
+        content:    "❌ Setup abgebrochen.",
+        embeds:     [],
         components: []
       });
     }
 
-    // ✅ Setup abschließen
-    if (interaction.customId === "setup-finish") {
+    // ── Setup abschließen ─────────────────────────────────────────────────────
+    if (id === "setup-finish") {
       return interaction.update({
-        content: "✅ Setup gespeichert.",
-        embeds: [],
+        content:    "✅ Setup gespeichert.",
+        embeds:     [],
         components: []
       });
     }
