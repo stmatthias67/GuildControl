@@ -16,7 +16,6 @@ const DEFAULT_CATEGORIES = [
   { id: "support",      label: "Support",                emoji: "🎫", description: "Allgemeiner Support" },
   { id: "report",       label: "User melden / Report",   emoji: "🚨", description: "Einen User melden" },
   { id: "partner",      label: "Partner Anfrage",        emoji: "🤝", description: "Partnerschaft anfragen" },
-  { id: "application",  label: "Bewerbung (Staff/Team)", emoji: "📋", description: "Dich beim Team bewerben" },
   { id: "management",   label: "Owner / Management",     emoji: "👑", description: "Owner / Management kontaktieren" }
 ];
 

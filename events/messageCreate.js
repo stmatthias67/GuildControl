@@ -1,16 +1,21 @@
 'use strict';
 
 /**
- * messageCreate.js
- * Event: Wird bei jeder neuen Nachricht ausgelöst.
+ * messageCreate.js  — ERWEITERT
  *
- * Reihenfolge:
- *   1. AutoMod Checks (Security System)
- *   2. XP vergeben (Level System)
+ * Neu gegenüber der alten Version:
+ *  - Übergibt channelId, memberRoles und member an grantXp()
+ *  - Level-Up Nachricht respektiert RankConfig:
+ *      • levelUp.enabled  → Nachrichten an/aus
+ *      • levelUp.channelId → eigener Kanal oder aktueller Kanal
+ *      • levelUp.message   → konfigurierbarer Text mit Platzhaltern
+ *  - Rang-Rollen werden automatisch über checkAndAssignRankRoles() vergeben
+ *    (das passiert bereits innerhalb von grantXp, braucht aber member)
  */
 
 const { EmbedBuilder } = require('discord.js');
 const { grantXp }      = require('../utils/levelUtils');
+const RankConfig       = require('../models/RankConfig');
 const {
   checkSpam,
   checkLinks,
@@ -26,8 +31,6 @@ module.exports = {
     if (message.author.bot || !message.guild) return;
 
     // ── AutoMod ──────────────────────────────────────────────────────────────
-    // Checks laufen sequenziell – sobald einer greift wird gestoppt.
-    // So werden keine doppelten Bestrafungen vergeben.
     try {
       if (await checkSpam(message))     return;
       if (await checkLinks(message))    return;
@@ -35,27 +38,57 @@ module.exports = {
       if (await checkCaps(message))     return;
     } catch (err) {
       console.error('[AutoMod] Fehler im AutoMod-Check:', err);
-      // AutoMod-Fehler blockiert NICHT das XP-System
     }
 
     // ── XP System ────────────────────────────────────────────────────────────
     try {
-      const { leveledUp, newLevel } = await grantXp(message.author.id, message.guild.id);
+      const member      = message.member;
+      const memberRoles = member?.roles?.cache?.map(r => r.id) ?? [];
 
-      if (!leveledUp) return;
+      const { leveledUp, newLevel, blocked } = await grantXp(
+        message.author.id,
+        message.guild.id,
+        {
+          channelId:   message.channel.id,
+          memberRoles,
+          member,
+        }
+      );
 
+      // Geblockt (disabled / cooldown / ignoriert) → nichts tun
+      if (blocked || !leveledUp) return;
+
+      // ── Level-Up Nachricht ────────────────────────────────────────────────
+      const rankConfig = await RankConfig.findOne({ guildId: message.guild.id });
+
+      // Nachrichten deaktiviert?
+      if (rankConfig?.levelUp?.enabled === false) return;
+
+      // Nachrichtentext mit Platzhaltern ersetzen
+      const rawMsg = rankConfig?.levelUp?.message
+        ?? '🎉 {user} hat **Level {level}** erreicht!';
+
+      const levelUpText = rawMsg
+        .replace(/{user}/g,     message.author.toString())
+        .replace(/{username}/g, message.author.username)
+        .replace(/{level}/g,    String(newLevel));
+
+      // Embed bauen
       const embed = new EmbedBuilder()
         .setColor(0xFFD700)
         .setTitle('⬆️ Level Up!')
-        .setDescription(
-          `Herzlichen Glückwunsch ${message.author}! 🎉\n` +
-          `Du hast **Level ${newLevel}** erreicht!`
-        )
+        .setDescription(levelUpText)
         .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
-        .setFooter({ text: message.guild.name, iconURL: message.guild.iconURL() })
+        .setFooter({ text: message.guild.name, iconURL: message.guild.iconURL() ?? undefined })
         .setTimestamp();
 
-      await message.channel.send({ embeds: [embed] }).catch(() => null);
+      // Ziel-Kanal bestimmen
+      const targetChannelId = rankConfig?.levelUp?.channelId;
+      const targetChannel   = targetChannelId
+        ? (message.guild.channels.cache.get(targetChannelId) ?? message.channel)
+        : message.channel;
+
+      await targetChannel.send({ embeds: [embed] }).catch(() => null);
 
     } catch (error) {
       console.error('[XP] Fehler beim Vergeben von XP:', error);

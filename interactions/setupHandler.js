@@ -1,31 +1,38 @@
 'use strict';
 
 /**
- * setupHandler.js
- * Zentraler Router für alle Setup-Interaktionen.
+ * setupHandler.js  — ERWEITERT
+ *
+ * Neu:
+ *  - rank → showRankSetup(interaction)
+ *  - ranksetup-* → handleRankSetupInteraction(interaction)
  *
  * Präfixe:
  *   role-setup-*       → roleSetup.js
  *   ticketsetup-*      → ticketHandler.js
  *   ticket-*           → ticketHandler.js
  *   securitysetup-*    → securitySetupHandler.js
+ *   ranksetup-*        → rankSetupHandler.js        ← NEU
  *   setup-*            → Haupt-Setup (dieses File)
  */
 
-const GuildConfig = require("../models/GuildConfig");
-const { startRoleSetup, handleRoleSetupInteraction } = require("./roleSetup");
-const { showSetupOverview: showTicketSetup, execute: handleTicketInteraction } = require("./ticketHandler");
-const { showSetupOverview: showSecuritySetup, execute: handleSecurityInteraction } = require("./securitySetupHandler");
+const GuildConfig = require('../models/GuildConfig');
+const { startRoleSetup, handleRoleSetupInteraction }      = require('./roleSetup');
+const { showSetupOverview: showTicketSetup,
+        execute: handleTicketInteraction }                 = require('./ticketHandler');
+const { showSetupOverview: showSecuritySetup,
+        execute: handleSecurityInteraction }               = require('./securitySetupHandler');
+const { showRankSetup, handleRankSetupInteraction }       = require('./rankSetupHandler'); // ← NEU
 
 module.exports = {
-  name: "interactionCreate",
+  name: 'interactionCreate',
 
   async execute(interaction, client) {
 
     if (
-      !interaction.isButton() &&
-      !interaction.isStringSelectMenu() &&
-      !interaction.isRoleSelectMenu() &&
+      !interaction.isButton()            &&
+      !interaction.isStringSelectMenu()  &&
+      !interaction.isRoleSelectMenu()    &&
       !interaction.isChannelSelectMenu() &&
       !interaction.isModalSubmit()
     ) return;
@@ -33,64 +40,72 @@ module.exports = {
     const id = interaction.customId;
 
     // ── Role Setup ────────────────────────────────────────────────────────────
-    if (id.startsWith("role-setup-")) {
+    if (id.startsWith('role-setup-')) {
       return handleRoleSetupInteraction(interaction);
     }
 
-    // ── Ticket System (Setup + Live) ──────────────────────────────────────────
-    if (id.startsWith("ticketsetup-") || id.startsWith("ticket-")) {
+    // ── Ticket System ─────────────────────────────────────────────────────────
+    if (id.startsWith('ticketsetup-') || id.startsWith('ticket-')) {
       return handleTicketInteraction(interaction, client);
     }
 
     // ── Security System ───────────────────────────────────────────────────────
-    if (id.startsWith("securitysetup-")) {
+    if (id.startsWith('securitysetup-')) {
       return handleSecurityInteraction(interaction, client);
     }
 
+    // ── Rank Setup ────────────────────────────────────────────────────────────
+    if (id.startsWith('ranksetup-')) {
+      return handleRankSetupInteraction(interaction);
+    }
+
     // ── Setup Haupt-Menü ──────────────────────────────────────────────────────
-    if (interaction.isStringSelectMenu() && id === "setup-menu") {
+    if (interaction.isStringSelectMenu() && id === 'setup-menu') {
       const value = interaction.values[0];
 
-      if (value === "roles") {
+      if (value === 'roles') {
         return startRoleSetup(interaction);
       }
 
-      if (value === "tickets") {
+      if (value === 'tickets') {
         return showTicketSetup(interaction);
       }
 
-      if (value === "security") {
+      if (value === 'security') {
         return showSecuritySetup(interaction);
+      }
+
+      if (value === 'rank') {
+        return showRankSetup(interaction); // ← NEU
       }
 
       // Platzhalter für noch nicht implementierte Systeme
       const placeholders = {
-        voice:        "🔊 Voice Setup",
-        rank:         "📈 Rank Setup",
-        applications: "📋 Bewerbungs Setup",
-        stats:        "📊 Statistik Setup",
+        voice:        '🔊 Voice Setup',
+        applications: '📋 Bewerbungs Setup',
+        stats:        '📊 Statistik Setup',
       };
 
       if (placeholders[value]) {
         return interaction.reply({
-          content: `${placeholders[value]} wird bald verfügbar sein!`,
-          ephemeral: true
+          content:   `${placeholders[value]} wird bald verfügbar sein!`,
+          ephemeral: true,
         });
       }
     }
 
     // ── Auto Setup ────────────────────────────────────────────────────────────
-    if (id === "setup-create-all") {
+    if (id === 'setup-create-all') {
       await interaction.deferReply({ ephemeral: true });
 
       try {
-        const roles = ["Supporter", "Mitglied"];
+        const roles = ['Supporter', 'Mitglied'];
         for (const roleName of roles) {
           const exists = interaction.guild.roles.cache.find(r => r.name === roleName);
           if (!exists) {
             await interaction.guild.roles.create({
               name:   roleName,
-              reason: "GuildControl Auto Setup"
+              reason: 'GuildControl Auto Setup',
             });
           }
         }
@@ -99,37 +114,37 @@ module.exports = {
           { guildId: interaction.guild.id },
           {
             guildId: interaction.guild.id,
-            systems: { moderation: true, tickets: true, logs: true }
+            systems: { moderation: true, tickets: true, logs: true },
           },
           { upsert: true, new: true }
         );
 
-        await interaction.editReply({ content: "✅ GuildControl Auto-Setup erfolgreich abgeschlossen!" });
+        await interaction.editReply({ content: '✅ GuildControl Auto-Setup erfolgreich abgeschlossen!' });
 
       } catch (err) {
-        console.error("[Setup] Auto Setup Fehler:", err);
-        await interaction.editReply({ content: "❌ Fehler beim Auto-Setup!" });
+        console.error('[Setup] Auto Setup Fehler:', err);
+        await interaction.editReply({ content: '❌ Fehler beim Auto-Setup!' });
       }
 
       return;
     }
 
     // ── Setup abbrechen ───────────────────────────────────────────────────────
-    if (id === "setup-cancel") {
+    if (id === 'setup-cancel') {
       return interaction.update({
-        content:    "❌ Setup abgebrochen.",
+        content:    '❌ Setup abgebrochen.',
         embeds:     [],
-        components: []
+        components: [],
       });
     }
 
     // ── Setup abschließen ─────────────────────────────────────────────────────
-    if (id === "setup-finish") {
+    if (id === 'setup-finish') {
       return interaction.update({
-        content:    "✅ Setup gespeichert.",
+        content:    '✅ Setup gespeichert.',
         embeds:     [],
-        components: []
+        components: [],
       });
     }
-  }
+  },
 };
