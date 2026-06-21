@@ -6,9 +6,10 @@
  * Analog zu rankSetupHandler.js / securitySetupHandler.js.
  */
 
-const { PermissionFlagsBits, ChannelType } = require('discord.js');
+const { PermissionFlagsBits, ChannelType, ActionRowBuilder, ChannelSelectMenuBuilder, StringSelectMenuBuilder } = require('discord.js');
 const ApplicationConfig = require('../models/ApplicationConfig');
 const GuildConfig = require('../models/GuildConfig');
+const { ROLE_DEFINITIONS } = require('../utils/rolePermissions');
 const {
   buildApplicationOverviewEmbed,
   buildApplicationOverviewComponents,
@@ -59,6 +60,17 @@ function slugify(text) {
     .slice(0, 50);
 }
 
+// Gibt nur Rollen-Keys zurück, denen bereits eine echte Discord-Rolle zugeordnet ist
+async function getConfiguredRoleKeys(guildId) {
+  const guildConfig = await GuildConfig.findOne({ guildId });
+  if (!guildConfig?.roles) return [];
+
+  const roles = guildConfig.roles;
+  return ROLE_DEFINITIONS
+    .filter(def => roles[def.key])
+    .map(def => ({ key: def.key, label: def.label, emoji: def.emoji }));
+}
+
 // ---------------------------------------------------------------------------
 // Screens
 // ---------------------------------------------------------------------------
@@ -68,10 +80,10 @@ async function showOverview(interaction) {
   const embed = buildApplicationOverviewEmbed(config);
   const components = buildApplicationOverviewComponents(config);
 
-  if (interaction.replied || interaction.deferred) {
-    await interaction.editReply({ embeds: [embed], components });
+  if (interaction.deferred || interaction.replied) {
+    await interaction.editReply({ content: null, embeds: [embed], components });
   } else {
-    await interaction.update({ embeds: [embed], components });
+    await interaction.update({ content: null, embeds: [embed], components });
   }
 }
 
@@ -79,7 +91,7 @@ async function showFormList(interaction) {
   const config = await getOrCreateApplicationConfig(interaction.guildId);
   const embed = buildFormListEmbed(config);
   const components = buildFormListComponents(config);
-  await interaction.update({ embeds: [embed], components });
+  await interaction.update({ content: null, embeds: [embed], components });
 }
 
 async function showFormDetail(interaction, formId) {
@@ -90,7 +102,7 @@ async function showFormDetail(interaction, formId) {
   }
   const embed = buildFormDetailEmbed(form);
   const components = buildFormDetailComponents(form);
-  await interaction.update({ embeds: [embed], components });
+  await interaction.update({ content: null, embeds: [embed], components });
 }
 
 // ---------------------------------------------------------------------------
@@ -102,68 +114,7 @@ async function handleApplicationSetupInteraction(interaction) {
 
   const id = interaction.customId;
 
-  // --- Overview-level buttons ---
-  if (id === 'applicationsetup-overview') {
-    return showOverview(interaction);
-  }
-
-  if (id === 'applicationsetup-channel') {
-    return interaction.update({
-      content: 'Bitte wähle den Review-Channel über das Channel-Auswahlmenü unten aus.',
-      embeds: [],
-      components: [buildChannelSelectRow()],
-    });
-  }
-
-  if (id === 'applicationsetup-reviewers') {
-    const guildConfig = await GuildConfig.findOne({ guildId: interaction.guildId });
-    const roleKeys = Object.keys(guildConfig?.roles?.toObject?.() || guildConfig?.roles || {});
-    if (!roleKeys.length) {
-      return interaction.update({
-        content: '⚠️ Es sind noch keine Rollen im Rollen-Setup konfiguriert. Bitte richte zuerst das Rollen-Setup ein.',
-        embeds: [],
-        components: [],
-      });
-    }
-    return interaction.update({
-      content: 'Wähle die Rolle(n), die Bewerbungen annehmen/ablehnen dürfen (aus dem Rollen-Setup):',
-      embeds: [],
-      components: [buildRoleKeySelectRow(roleKeys, 'applicationsetup-reviewersselect')],
-    });
-  }
-
-  if (id === 'applicationsetup-locktime') {
-    const config = await getOrCreateApplicationConfig(interaction.guildId);
-    return interaction.showModal(buildLockMinutesModal(config.cancelLockMinutes));
-  }
-
-  if (id === 'applicationsetup-forms') {
-    return showFormList(interaction);
-  }
-
-  if (id === 'applicationsetup-formnew') {
-    return interaction.showModal(buildFormNameModal());
-  }
-
-  if (id === 'applicationsetup-back') {
-    return showOverview(interaction);
-  }
-
-  if (id === 'applicationsetup-complete') {
-    const config = await getOrCreateApplicationConfig(interaction.guildId);
-    config.setupDone = true;
-    await config.save();
-    return showOverview(interaction);
-  }
-
-  // --- Form detail buttons (dynamic formId suffix) ---
-  const dynamicMatch = id.match(/^applicationsetup-(formedit|formchannel|formrole|formquestionadd|formquestionremove|formtoggle|formdelete)-(.+)$/);
-  if (dynamicMatch) {
-    const [, action, formId] = dynamicMatch;
-    return handleFormAction(interaction, action, formId);
-  }
-
-  // --- Select menus ---
+  // --- Select menus (vor den Button-Checks, da customId-Präfixe überlappen können) ---
   if (interaction.isStringSelectMenu() && id === 'applicationsetup-formselect') {
     return showFormDetail(interaction, interaction.values[0]);
   }
@@ -200,12 +151,66 @@ async function handleApplicationSetupInteraction(interaction) {
     if (form) {
       form.buttonChannelId = interaction.values[0];
       await config.save();
-
-      // Bewerbungs-Button im gewählten Channel posten/aktualisieren
       await postOrUpdateApplyButton(interaction.client, config, form);
       await config.save();
     }
     return showFormDetail(interaction, formId);
+  }
+
+  // --- Overview-level buttons ---
+  if (id === 'applicationsetup-channel') {
+    return interaction.update({
+      content: 'Bitte wähle den Review-Channel über das Channel-Auswahlmenü unten aus.',
+      embeds: [],
+      components: [buildChannelSelectRow('applicationsetup-channelselect')],
+    });
+  }
+
+  if (id === 'applicationsetup-reviewers') {
+    const roleOptions = await getConfiguredRoleKeys(interaction.guildId);
+    if (!roleOptions.length) {
+      return interaction.update({
+        content: '⚠️ Es sind noch keine Rollen im Rollen-Setup konfiguriert. Bitte richte zuerst das Rollen-Setup ein.',
+        embeds: [],
+        components: [],
+      });
+    }
+    return interaction.update({
+      content: 'Wähle die Rolle(n), die Bewerbungen annehmen/ablehnen dürfen (aus dem Rollen-Setup):',
+      embeds: [],
+      components: [buildRoleKeySelectRow(roleOptions, 'applicationsetup-reviewersselect', true)],
+    });
+  }
+
+  if (id === 'applicationsetup-locktime') {
+    const config = await getOrCreateApplicationConfig(interaction.guildId);
+    return interaction.showModal(buildLockMinutesModal(config.cancelLockMinutes));
+  }
+
+  if (id === 'applicationsetup-forms') {
+    return showFormList(interaction);
+  }
+
+  if (id === 'applicationsetup-formnew') {
+    return interaction.showModal(buildFormNameModal());
+  }
+
+  if (id === 'applicationsetup-back' || id === 'applicationsetup-overview') {
+    return showOverview(interaction);
+  }
+
+  if (id === 'applicationsetup-complete') {
+    const config = await getOrCreateApplicationConfig(interaction.guildId);
+    config.setupDone = true;
+    await config.save();
+    return showOverview(interaction);
+  }
+
+  // --- Form detail buttons (dynamic formId suffix) ---
+  const dynamicMatch = id.match(/^applicationsetup-(formedit|formchannel|formrole|formquestionadd|formquestionremove|formtoggle|formdelete)-(.+)$/);
+  if (dynamicMatch) {
+    const [, action, formId] = dynamicMatch;
+    return handleFormAction(interaction, action, formId);
   }
 }
 
@@ -228,9 +233,8 @@ async function handleFormAction(interaction, action, formId) {
       });
 
     case 'formrole': {
-      const guildConfig = await GuildConfig.findOne({ guildId: interaction.guildId });
-      const roleKeys = Object.keys(guildConfig?.roles?.toObject?.() || guildConfig?.roles || {});
-      if (!roleKeys.length) {
+      const roleOptions = await getConfiguredRoleKeys(interaction.guildId);
+      if (!roleOptions.length) {
         return interaction.update({
           content: '⚠️ Es sind noch keine Rollen im Rollen-Setup konfiguriert.',
           embeds: [],
@@ -240,7 +244,7 @@ async function handleFormAction(interaction, action, formId) {
       return interaction.update({
         content: `Wähle die Test-Rolle, die bei erfolgreicher Einstellung für **${form.label}** vergeben wird:`,
         embeds: [],
-        components: [buildRoleKeySelectRow(roleKeys, `applicationsetup-formroleselect-${formId}`)],
+        components: [buildRoleKeySelectRow(roleOptions, `applicationsetup-formroleselect-${formId}`, false)],
       });
     }
 
@@ -258,7 +262,6 @@ async function handleFormAction(interaction, action, formId) {
 
     case 'formtoggle': {
       if (!form.active) {
-        // Vor Aktivierung: Validierung
         if (!form.questions.length) {
           return interaction.update({ content: '⚠️ Formular braucht mindestens 1 Frage, bevor es aktiviert werden kann.', embeds: [], components: [] });
         }
@@ -301,7 +304,6 @@ async function handleApplicationSetupModalSubmit(interaction) {
 
     let formId = slugify(label);
     if (!formId) formId = `form-${Date.now()}`;
-    // Eindeutigkeit sicherstellen
     let suffix = 1;
     const baseId = formId;
     while (findForm(config, formId)) {
@@ -368,7 +370,6 @@ async function handleApplicationSetupModalSubmit(interaction) {
       const style = styleRaw === 'absatz' ? 'paragraph' : 'short';
       const required = requiredRaw === 'ja';
 
-      // Seite bestimmen: aktuelle letzte Seite auffüllen, sonst neue Seite
       const pages = {};
       for (const q of form.questions) {
         pages[q.page] = (pages[q.page] || 0) + 1;
@@ -421,9 +422,7 @@ async function handleApplicationSetupModalSubmit(interaction) {
 // Shared select-menu row builders
 // ---------------------------------------------------------------------------
 
-function buildChannelSelectRow(customId = 'applicationsetup-channelselect') {
-  const { ChannelSelectMenuBuilder } = require('discord.js');
-  const { ActionRowBuilder } = require('discord.js');
+function buildChannelSelectRow(customId) {
   return new ActionRowBuilder().addComponents(
     new ChannelSelectMenuBuilder()
       .setCustomId(customId)
@@ -432,16 +431,14 @@ function buildChannelSelectRow(customId = 'applicationsetup-channelselect') {
   );
 }
 
-function buildRoleKeySelectRow(roleKeys, customId) {
-  const { StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
-  const isMulti = customId === 'applicationsetup-reviewersselect';
+function buildRoleKeySelectRow(roleOptions, customId, isMulti) {
   const menu = new StringSelectMenuBuilder()
     .setCustomId(customId)
     .setPlaceholder('Rolle(n) auswählen...')
-    .addOptions(roleKeys.slice(0, 25).map(key => ({ label: key, value: key })));
+    .addOptions(roleOptions.slice(0, 25).map(r => ({ label: r.label, value: r.key, emoji: r.emoji })));
 
   if (isMulti) {
-    menu.setMinValues(1).setMaxValues(Math.min(roleKeys.length, 25));
+    menu.setMinValues(1).setMaxValues(Math.min(roleOptions.length, 25));
   }
 
   return new ActionRowBuilder().addComponents(menu);

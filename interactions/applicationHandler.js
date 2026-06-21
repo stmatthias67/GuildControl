@@ -42,10 +42,10 @@ function makeDraftId() {
 async function hasReviewerRole(interaction, config) {
   if (!config.reviewerRoleKeys?.length) return false;
   const guildConfig = await GuildConfig.findOne({ guildId: interaction.guildId });
-  const rolesMap = guildConfig?.roles?.toObject?.() || guildConfig?.roles || {};
+  if (!guildConfig?.roles) return false;
 
   for (const key of config.reviewerRoleKeys) {
-    const roleId = rolesMap[key];
+    const roleId = guildConfig.roles[key];
     if (roleId && interaction.member.roles.cache.has(roleId)) return true;
   }
   return false;
@@ -54,8 +54,7 @@ async function hasReviewerRole(interaction, config) {
 async function resolveRoleId(guildId, roleKey) {
   if (!roleKey) return null;
   const guildConfig = await GuildConfig.findOne({ guildId });
-  const rolesMap = guildConfig?.roles?.toObject?.() || guildConfig?.roles || {};
-  return rolesMap[roleKey] || null;
+  return guildConfig?.roles?.[roleKey] || null;
 }
 
 // ---------------------------------------------------------------------------

@@ -18,6 +18,9 @@ const path = require("path");
 const setupHandler = require("./interactions/setupHandler");
 const ticketHandler = require("./interactions/ticketHandler");
 const { handleVerifyButton } = require("./interactions/securitySetupHandler");
+const applicationSetupHandler = require("./interactions/applicationSetupHandler");
+const applicationHandler = require("./interactions/applicationHandler");
+const { initApplicationScheduler } = require("./utils/applicationScheduler");
 
 // ─────────────────────────────────────────────────────────────
 // MongoDB verbinden
@@ -44,6 +47,9 @@ mongoose.connection.on("disconnected", () => {
 require("./models/Ticket");
 require("./models/TicketConfig");
 require("./models/SecurityConfig"); // ← NEU
+require("./models/ApplicationConfig"); // ← NEU
+require("./models/Application"); // ← NEU
+require("./models/BlockedApplicant"); // ← NEU
 
 // ─────────────────────────────────────────────────────────────
 // Client erstellen
@@ -122,6 +128,9 @@ client.once("ready", async () => {
   } catch (err) {
     console.error("❌ Fehler beim Registrieren der Slash Commands:", err);
   }
+
+  // ── Bewerbungs-Scheduler starten ──────────────────────────────────────────
+  initApplicationScheduler(client);
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -200,6 +209,50 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
+    // ── Bewerbungs-Setup (applicationsetup-*) ─────────────────────────────────
+    if (interaction.customId.startsWith("applicationsetup-")) {
+      try {
+        if (interaction.isModalSubmit()) {
+          await applicationSetupHandler.handleApplicationSetupModalSubmit(interaction);
+        } else {
+          await applicationSetupHandler.handleApplicationSetupInteraction(interaction);
+        }
+      } catch (err) {
+        console.error("❌ Fehler im Bewerbungs-Setup-Handler:", err);
+        try {
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+              content: "❌ Fehler im Bewerbungs-Setup.",
+              ephemeral: true,
+            });
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      return;
+    }
+
+    // ── Bewerbungs-Live-System (application-*) ────────────────────────────────
+    if (interaction.customId.startsWith("application-")) {
+      try {
+        await handleApplicationLiveInteraction(interaction, client);
+      } catch (err) {
+        console.error("❌ Fehler im Bewerbungs-Live-Handler:", err);
+        try {
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+              content: "❌ Fehler im Bewerbungssystem.",
+              ephemeral: true,
+            });
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      return;
+    }
+
     // ── Setup System (inkl. Security) ─────────────────────────────────────────
     const isSetupInteraction =
       interaction.customId.startsWith("setup-") ||
@@ -218,172 +271,7 @@ client.on("interactionCreate", async (interaction) => {
               content: "❌ Fehler im Setup-System.",
               ephemeral: true,
             });
-          } ////////////////////und so sieht es in setupHandler.js aus: 'use strict';
-
-          /**
-           * setupHandler.js  — ERWEITERT
-           *
-           * Neu:
-           *  - rank → showRankSetup(interaction)
-           *  - ranksetup-* → handleRankSetupInteraction(interaction)
-           *
-           * Präfixe:
-           *   role-setup-*       → roleSetup.js
-           *   ticketsetup-*      → ticketHandler.js
-           *   ticket-*           → ticketHandler.js
-           *   securitysetup-*    → securitySetupHandler.js
-           *   ranksetup-*        → rankSetupHandler.js        ← NEU
-           *   setup-*            → Haupt-Setup (dieses File)
-           */
-
-          const GuildConfig = require("./models/GuildConfig");
-          const {
-            startRoleSetup,
-            handleRoleSetupInteraction,
-          } = require("./roleSetup");
-          const {
-            showSetupOverview: showTicketSetup,
-            execute: handleTicketInteraction,
-          } = require("./ticketHandler");
-          const {
-            showSetupOverview: showSecuritySetup,
-            execute: handleSecurityInteraction,
-          } = require("./securitySetupHandler");
-          const {
-            showRankSetup,
-            handleRankSetupInteraction,
-          } = require("./rankSetupHandler"); // ← NEU
-
-          module.exports = {
-            name: "interactionCreate",
-
-            async execute(interaction, client) {
-              if (
-                !interaction.isButton() &&
-                !interaction.isStringSelectMenu() &&
-                !interaction.isRoleSelectMenu() &&
-                !interaction.isChannelSelectMenu() &&
-                !interaction.isModalSubmit()
-              )
-                return;
-
-              const id = interaction.customId;
-
-              // ── Role Setup ────────────────────────────────────────────────────────────
-              if (id.startsWith("role-setup-")) {
-                return handleRoleSetupInteraction(interaction);
-              }
-
-              // ── Ticket System ─────────────────────────────────────────────────────────
-              if (id.startsWith("ticketsetup-") || id.startsWith("ticket-")) {
-                return handleTicketInteraction(interaction, client);
-              }
-
-              // ── Security System ───────────────────────────────────────────────────────
-              if (id.startsWith("securitysetup-")) {
-                return handleSecurityInteraction(interaction, client);
-              }
-
-              // ── Rank Setup ────────────────────────────────────────────────────────────
-              if (id.startsWith("ranksetup-")) {
-                return handleRankSetupInteraction(interaction);
-              }
-
-              // ── Setup Haupt-Menü ──────────────────────────────────────────────────────
-              if (interaction.isStringSelectMenu() && id === "setup-menu") {
-                const value = interaction.values[0];
-
-                if (value === "roles") {
-                  return startRoleSetup(interaction);
-                }
-
-                if (value === "tickets") {
-                  return showTicketSetup(interaction);
-                }
-
-                if (value === "security") {
-                  return showSecuritySetup(interaction);
-                }
-
-                if (value === "rank") {
-                  return showRankSetup(interaction); // ← NEU
-                }
-
-                // Platzhalter für noch nicht implementierte Systeme
-                const placeholders = {
-                  voice: "🔊 Voice Setup",
-                  applications: "📋 Bewerbungs Setup",
-                  stats: "📊 Statistik Setup",
-                };
-
-                if (placeholders[value]) {
-                  return interaction.reply({
-                    content: `${placeholders[value]} wird bald verfügbar sein!`,
-                    ephemeral: true,
-                  });
-                }
-              }
-
-              // ── Auto Setup ────────────────────────────────────────────────────────────
-              if (id === "setup-create-all") {
-                await interaction.deferReply({ ephemeral: true });
-
-                try {
-                  const roles = ["Supporter", "Mitglied"];
-                  for (const roleName of roles) {
-                    const exists = interaction.guild.roles.cache.find(
-                      (r) => r.name === roleName,
-                    );
-                    if (!exists) {
-                      await interaction.guild.roles.create({
-                        name: roleName,
-                        reason: "GuildControl Auto Setup",
-                      });
-                    }
-                  }
-
-                  await GuildConfig.findOneAndUpdate(
-                    { guildId: interaction.guild.id },
-                    {
-                      guildId: interaction.guild.id,
-                      systems: { moderation: true, tickets: true, logs: true },
-                    },
-                    { upsert: true, new: true },
-                  );
-
-                  await interaction.editReply({
-                    content:
-                      "✅ GuildControl Auto-Setup erfolgreich abgeschlossen!",
-                  });
-                } catch (err) {
-                  console.error("[Setup] Auto Setup Fehler:", err);
-                  await interaction.editReply({
-                    content: "❌ Fehler beim Auto-Setup!",
-                  });
-                }
-
-                return;
-              }
-
-              // ── Setup abbrechen ───────────────────────────────────────────────────────
-              if (id === "setup-cancel") {
-                return interaction.update({
-                  content: "❌ Setup abgebrochen.",
-                  embeds: [],
-                  components: [],
-                });
-              }
-
-              // ── Setup abschließen ─────────────────────────────────────────────────────
-              if (id === "setup-finish") {
-                return interaction.update({
-                  content: "✅ Setup gespeichert.",
-                  embeds: [],
-                  components: [],
-                });
-              }
-            },
-          };
+          }
         } catch (e) {
           console.error(e);
         }
@@ -392,6 +280,75 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 });
+
+// ─────────────────────────────────────────────────────────────
+// Bewerbungs-Live-System: Routing-Helper
+// ─────────────────────────────────────────────────────────────
+async function handleApplicationLiveInteraction(interaction, client) {
+  const id = interaction.customId;
+
+  if (interaction.isModalSubmit()) {
+    if (id.startsWith("application-modal-apply-")) {
+      return applicationHandler.handleApplicationModalSubmit(interaction);
+    }
+    const proposeMatch = id.match(/^application-modal-proposeslots-(.+)$/);
+    if (proposeMatch) {
+      return applicationHandler.handleProposeSlotsSubmit(interaction, proposeMatch[1]);
+    }
+    return;
+  }
+
+  if (interaction.isStringSelectMenu()) {
+    const slotMatch = id.match(/^application-slotchoice-(.+)$/);
+    if (slotMatch) {
+      return applicationHandler.handleSlotChoice(interaction, slotMatch[1]);
+    }
+    return;
+  }
+
+  if (id.startsWith("application-apply-")) {
+    return applicationHandler.handleApplyButton(interaction, id.replace("application-apply-", ""));
+  }
+
+  if (id.startsWith("application-nextpage-")) {
+    return applicationHandler.handleNextPageButton(interaction);
+  }
+
+  const acceptMatch = id.match(/^application-accept-(.+)$/);
+  if (acceptMatch) {
+    return applicationHandler.handleReviewDecision(interaction, "accept", acceptMatch[1]);
+  }
+
+  const denyMatch = id.match(/^application-deny-(.+)$/);
+  if (denyMatch) {
+    return applicationHandler.handleReviewDecision(interaction, "deny", denyMatch[1]);
+  }
+
+  const cancelMatch = id.match(/^application-cancelappt-(.+)$/);
+  if (cancelMatch) {
+    return applicationHandler.handleCancelAppointment(interaction, cancelMatch[1]);
+  }
+
+  const rescheduleMatch = id.match(/^application-reschedule-(.+)$/);
+  if (rescheduleMatch) {
+    return applicationHandler.handleReschedule(interaction, rescheduleMatch[1]);
+  }
+
+  const noShowMatch = id.match(/^application-noshow-(.+)$/);
+  if (noShowMatch) {
+    return applicationHandler.handleNoShow(interaction, noShowMatch[1]);
+  }
+
+  const hireMatch = id.match(/^application-hire-(.+)$/);
+  if (hireMatch) {
+    return applicationHandler.handleFinalDecision(interaction, "hire", hireMatch[1]);
+  }
+
+  const rejectMatch = id.match(/^application-reject-(.+)$/);
+  if (rejectMatch) {
+    return applicationHandler.handleFinalDecision(interaction, "reject", rejectMatch[1]);
+  }
+}
 
 // ─────────────────────────────────────────────────────────────
 // Login
