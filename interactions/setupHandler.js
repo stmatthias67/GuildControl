@@ -80,11 +80,15 @@ module.exports = {
         // showRankSetup erkennt bereits deferred Interactions und nutzt update()
         return showRankSetup(interaction);
       }
-
+      
+      if (value === 'applications') {
+        const { showOverview } = require('./applicationSetupHandler');
+        return showOverview(interaction);
+      }
+      
       // Platzhalter für noch nicht implementierte Systeme → update() statt reply()
       const placeholders = {
         voice:        '🔊 Voice Setup',
-        applications: '📋 Bewerbungs Setup',
         stats:        '📊 Statistik Setup',
       };
 
