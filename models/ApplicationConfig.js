@@ -33,11 +33,12 @@ const FormSchema = new Schema({
   questions: { type: [QuestionSchema], default: [] },
 
   active: { type: Boolean, default: false },
-}, { _id: false });
 
   //close-Reason
   closed: { type: Boolean, default: false },
   closedReason: { type: String, default: null },
+
+}, { _id: false });
 
 const ApplicationConfigSchema = new Schema({
   guildId: { type: String, required: true, unique: true },

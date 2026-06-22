@@ -339,7 +339,7 @@ function buildProposeSlotsModal(applicationId) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('slots')
-          .setLabel('Termine (ein Vorschlag pro Zeile, TT.MM.JJJJ HH:MM)')
+          .setLabel('Termine (TT.MM.JJJJ HH:MM, 1 pro Zeile)') // 43 Zeichen, < 45
           .setPlaceholder('21.06.2026 18:00\n22.06.2026 19:30\n23.06.2026 20:00')
           .setStyle(TextInputStyle.Paragraph)
           .setMaxLength(300)
