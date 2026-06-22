@@ -3,13 +3,24 @@
 /**
  * applicationSetupHandler.js
  * Setup-Flow für das Bewerbungssystem (Prefix: "applicationsetup-").
- * Analog zu rankSetupHandler.js / securitySetupHandler.js.
  */
 
-const { PermissionFlagsBits, ChannelType, ActionRowBuilder, ChannelSelectMenuBuilder, StringSelectMenuBuilder } = require('discord.js');
+const {
+  PermissionFlagsBits,
+  ChannelType,
+  ActionRowBuilder,
+  ChannelSelectMenuBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+} = require('discord.js');
+
 const ApplicationConfig = require('../models/ApplicationConfig');
 const GuildConfig = require('../models/GuildConfig');
 const { ROLE_DEFINITIONS } = require('../utils/rolePermissions');
+const { TEMPLATES, getTemplate } = require('../utils/applicationTemplates');
 const {
   buildApplicationOverviewEmbed,
   buildApplicationOverviewComponents,
@@ -24,6 +35,11 @@ const {
   buildLockMinutesModal,
   buildApplyButtonEmbed,
   buildApplyButtonComponents,
+  buildTemplateListEmbed,
+  buildTemplateListComponents,
+  buildCloseReasonSelectRow,
+  buildCloseReasonCustomModal,
+  CLOSE_REASON_PRESETS,
   MAX_QUESTIONS_PER_PAGE,
 } = require('../utils/applicationBuilder');
 
@@ -60,7 +76,17 @@ function slugify(text) {
     .slice(0, 50);
 }
 
-// Gibt nur Rollen-Keys zurück, denen bereits eine echte Discord-Rolle zugeordnet ist
+function generateUniqueFormId(config, label) {
+  let formId = slugify(label);
+  if (!formId) formId = `form-${Date.now()}`;
+  let suffix = 1;
+  const baseId = formId;
+  while (findForm(config, formId)) {
+    formId = `${baseId}-${suffix++}`;
+  }
+  return formId;
+}
+
 async function getConfiguredRoleKeys(guildId) {
   const guildConfig = await GuildConfig.findOne({ guildId });
   if (!guildConfig?.roles) return [];
@@ -69,6 +95,46 @@ async function getConfiguredRoleKeys(guildId) {
   return ROLE_DEFINITIONS
     .filter(def => roles[def.key])
     .map(def => ({ key: def.key, label: def.label, emoji: def.emoji }));
+}
+
+// Baut das Haupt-Setup-Menü nach (analog commands/setup.js), für den Zurück-Button
+function buildMainSetupMenu() {
+  const embed = new EmbedBuilder()
+    .setTitle('⚙️ GuildControl Setup')
+    .setDescription('Wähle ein System zum Konfigurieren oder starte den Auto-Setup.')
+    .setColor(0x5865f2);
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId('setup-menu')
+    .setPlaceholder('System auswählen...')
+    .addOptions([
+      new StringSelectMenuOptionBuilder().setLabel('Rollen Setup').setDescription('Team Rollen konfigurieren').setValue('roles').setEmoji('👑'),
+      new StringSelectMenuOptionBuilder().setLabel('Ticket Setup').setDescription('Ticket System konfigurieren').setValue('tickets').setEmoji('🎫'),
+      new StringSelectMenuOptionBuilder().setLabel('Security Setup').setDescription('Security System konfigurieren').setValue('security').setEmoji('🛡️'),
+      new StringSelectMenuOptionBuilder().setLabel('Voice Setup').setDescription('Voice System konfigurieren').setValue('voice').setEmoji('🔊'),
+      new StringSelectMenuOptionBuilder().setLabel('Rank Setup').setDescription('Level System konfigurieren').setValue('rank').setEmoji('📈'),
+      new StringSelectMenuOptionBuilder().setLabel('Bewerbungs Setup').setDescription('Bewerbungssystem konfigurieren').setValue('applications').setEmoji('📋'),
+      new StringSelectMenuOptionBuilder().setLabel('Statistik Setup').setDescription('Server Statistiken erstellen').setValue('stats').setEmoji('📊'),
+    ]);
+
+  const row = new ActionRowBuilder().addComponents(menu);
+
+  const buttons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('setup-create-all').setLabel('🚀 Auto Setup').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('setup-finish').setLabel('✅ Setup Abschließen').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('setup-cancel').setLabel('❌ Abbrechen').setStyle(ButtonStyle.Danger),
+  );
+
+  return { embeds: [embed], components: [row, buttons] };
+}
+
+async function showMainSetupMenu(interaction) {
+  const { embeds, components } = buildMainSetupMenu();
+  if (interaction.deferred || interaction.replied) {
+    await interaction.editReply({ content: null, embeds, components });
+  } else {
+    await interaction.update({ content: null, embeds, components });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +171,12 @@ async function showFormDetail(interaction, formId) {
   await interaction.update({ content: null, embeds: [embed], components });
 }
 
+async function showTemplateList(interaction) {
+  const embed = buildTemplateListEmbed();
+  const components = buildTemplateListComponents(TEMPLATES);
+  await interaction.update({ content: null, embeds: [embed], components });
+}
+
 // ---------------------------------------------------------------------------
 // Main entry: Buttons / Select Menus
 // ---------------------------------------------------------------------------
@@ -114,7 +186,7 @@ async function handleApplicationSetupInteraction(interaction) {
 
   const id = interaction.customId;
 
-  // --- Select menus (vor den Button-Checks, da customId-Präfixe überlappen können) ---
+  // --- Select menus zuerst (Präfix-Überlappung vermeiden) ---
   if (interaction.isStringSelectMenu() && id === 'applicationsetup-formselect') {
     return showFormDetail(interaction, interaction.values[0]);
   }
@@ -132,6 +204,60 @@ async function handleApplicationSetupInteraction(interaction) {
     const form = findForm(config, formId);
     if (form) {
       form.targetTestRoleKey = interaction.values[0];
+      await config.save();
+    }
+    return showFormDetail(interaction, formId);
+  }
+
+  if (interaction.isStringSelectMenu() && id === 'applicationsetup-templateselect') {
+    const templateId = interaction.values[0];
+    const template = getTemplate(templateId);
+    if (!template) {
+      return interaction.update({ content: '❌ Vorlage nicht gefunden.', embeds: [], components: [] });
+    }
+
+    const config = await getOrCreateApplicationConfig(interaction.guildId);
+    const formId = generateUniqueFormId(config, template.label);
+
+    config.forms.push({
+      formId,
+      label: template.label,
+      description: template.description,
+      emoji: template.emoji,
+      buttonChannelId: null,
+      buttonMessageId: null,
+      targetTestRoleKey: template.targetTestRoleKey,
+      closed: false,
+      closedReason: null,
+      active: false,
+      questions: template.questions.map((q, i) => ({
+        id: `q${i + 1}_${Date.now().toString(36)}`,
+        label: q.label,
+        style: q.style,
+        required: q.required,
+        maxLength: q.style === 'paragraph' ? 1000 : 200,
+        page: Math.floor(i / MAX_QUESTIONS_PER_PAGE) + 1,
+      })),
+    });
+    await config.save();
+
+    return showFormDetail(interaction, formId);
+  }
+
+  if (interaction.isStringSelectMenu() && id.startsWith('applicationsetup-closereasonselect-')) {
+    const formId = id.replace('applicationsetup-closereasonselect-', '');
+    const presetValue = interaction.values[0];
+
+    if (presetValue === 'custom') {
+      return interaction.showModal(buildCloseReasonCustomModal(formId));
+    }
+
+    const preset = CLOSE_REASON_PRESETS.find(r => r.value === presetValue);
+    const config = await getOrCreateApplicationConfig(interaction.guildId);
+    const form = findForm(config, formId);
+    if (form && preset) {
+      form.closed = true;
+      form.closedReason = preset.label;
       await config.save();
     }
     return showFormDetail(interaction, formId);
@@ -195,8 +321,17 @@ async function handleApplicationSetupInteraction(interaction) {
     return interaction.showModal(buildFormNameModal());
   }
 
+  if (id === 'applicationsetup-templates') {
+    return showTemplateList(interaction);
+  }
+
   if (id === 'applicationsetup-back' || id === 'applicationsetup-overview') {
     return showOverview(interaction);
+  }
+
+  // ── Zurück ins Haupt-Setup-Menü ──────────────────────────────────────────
+  if (id === 'setup-menu-back') {
+    return showMainSetupMenu(interaction);
   }
 
   if (id === 'applicationsetup-complete') {
@@ -206,15 +341,21 @@ async function handleApplicationSetupInteraction(interaction) {
     return showOverview(interaction);
   }
 
+  // --- Quick-Toggle aus der Formular-Liste ---
+  if (id.startsWith('applicationsetup-quicktoggle-')) {
+    const formId = id.replace('applicationsetup-quicktoggle-', '');
+    return handleFormAction(interaction, 'formtoggle', formId, true);
+  }
+
   // --- Form detail buttons (dynamic formId suffix) ---
-  const dynamicMatch = id.match(/^applicationsetup-(formedit|formchannel|formrole|formquestionadd|formquestionremove|formtoggle|formdelete)-(.+)$/);
+  const dynamicMatch = id.match(/^applicationsetup-(formedit|formchannel|formrole|formquestionadd|formquestionremove|formtoggle|formclose|formdelete)-(.+)$/);
   if (dynamicMatch) {
     const [, action, formId] = dynamicMatch;
     return handleFormAction(interaction, action, formId);
   }
 }
 
-async function handleFormAction(interaction, action, formId) {
+async function handleFormAction(interaction, action, formId, backToList = false) {
   const config = await getOrCreateApplicationConfig(interaction.guildId);
   const form = findForm(config, formId);
   if (!form) {
@@ -276,7 +417,25 @@ async function handleFormAction(interaction, action, formId) {
         form.active = false;
         await config.save();
       }
-      return showFormDetail(interaction, formId);
+      return backToList ? showFormList(interaction) : showFormDetail(interaction, formId);
+    }
+
+    case 'formclose': {
+      if (form.closed) {
+        // Wieder öffnen
+        form.closed = false;
+        form.closedReason = null;
+        await config.save();
+        await postOrUpdateApplyButton(interaction.client, config, form);
+        await config.save();
+        return showFormDetail(interaction, formId);
+      }
+      // Schließen -> Grund abfragen
+      return interaction.update({
+        content: `Wähle einen Grund für die Schließung von **${form.label}** (wird Bewerbern angezeigt):`,
+        embeds: [],
+        components: buildCloseReasonSelectRow(formId),
+      });
     }
 
     case 'formdelete':
@@ -301,14 +460,7 @@ async function handleApplicationSetupModalSubmit(interaction) {
 
     const label = interaction.fields.getTextInputValue('label').trim();
     const description = interaction.fields.getTextInputValue('description')?.trim() || '';
-
-    let formId = slugify(label);
-    if (!formId) formId = `form-${Date.now()}`;
-    let suffix = 1;
-    const baseId = formId;
-    while (findForm(config, formId)) {
-      formId = `${baseId}-${suffix++}`;
-    }
+    const formId = generateUniqueFormId(config, label);
 
     config.forms.push({
       formId,
@@ -318,6 +470,8 @@ async function handleApplicationSetupModalSubmit(interaction) {
       buttonChannelId: null,
       buttonMessageId: null,
       targetTestRoleKey: null,
+      closed: false,
+      closedReason: null,
       questions: [],
       active: false,
     });
@@ -412,6 +566,22 @@ async function handleApplicationSetupModalSubmit(interaction) {
 
       const toRemove = sorted[index];
       form.questions = form.questions.filter(q => q.id !== toRemove.id);
+      await config.save();
+    }
+    return showFormDetail(interaction, formId);
+  }
+
+  const closeReasonMatch = id.match(/^applicationsetup-modal-closereason-(.+)$/);
+  if (closeReasonMatch) {
+    await interaction.deferUpdate();
+    const formId = closeReasonMatch[1];
+    const config = await getOrCreateApplicationConfig(interaction.guildId);
+    const form = findForm(config, formId);
+
+    if (form) {
+      const reason = interaction.fields.getTextInputValue('reason').trim();
+      form.closed = true;
+      form.closedReason = reason;
       await config.save();
     }
     return showFormDetail(interaction, formId);

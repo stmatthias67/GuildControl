@@ -29,6 +29,13 @@ const COLOR = {
 
 const MAX_QUESTIONS_PER_PAGE = 5;
 
+const CLOSE_REASON_PRESETS = [
+  { value: 'too_many', label: 'Zu viele Bewerbungen / Team voll' },
+  { value: 'technical_error', label: 'Technischer Fehler' },
+  { value: 'paused', label: 'Bewerbungen vorübergehend pausiert' },
+  { value: 'custom', label: 'Eigenen Grund eingeben...' },
+];
+
 // ---------------------------------------------------------------------------
 // SETUP: Übersicht
 // ---------------------------------------------------------------------------
@@ -65,11 +72,12 @@ function buildApplicationOverviewComponents(config) {
   const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('applicationsetup-forms').setLabel('Formulare verwalten').setStyle(ButtonStyle.Secondary).setEmoji('🗂️'),
     new ButtonBuilder().setCustomId('applicationsetup-formnew').setLabel('Neues Formular').setStyle(ButtonStyle.Secondary).setEmoji('➕'),
+    new ButtonBuilder().setCustomId('applicationsetup-templates').setLabel('Vorlagen').setStyle(ButtonStyle.Secondary).setEmoji('📑'),
   );
 
   const row3 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('applicationsetup-complete').setLabel('Setup abschließen').setStyle(ButtonStyle.Success).setEmoji('✅'),
-    new ButtonBuilder().setCustomId('setup-back').setLabel('Zurück').setStyle(ButtonStyle.Secondary).setEmoji('↩️'),
+    new ButtonBuilder().setCustomId('setup-menu-back').setLabel('Zurück').setStyle(ButtonStyle.Secondary).setEmoji('↩️'),
   );
 
   return [row1, row2, row3];
@@ -98,26 +106,43 @@ function buildFormListComponents(config) {
   if (forms.length) {
     const select = new StringSelectMenuBuilder()
       .setCustomId('applicationsetup-formselect')
-      .setPlaceholder('Formular auswählen...')
+      .setPlaceholder('Formular bearbeiten...')
       .addOptions(
         forms.slice(0, 25).map(f => ({
           label: f.label.slice(0, 100),
           value: f.formId,
-          description: `${f.questions.length} Frage(n) · ${f.active ? 'aktiv' : 'inaktiv'}`,
+          description: `${f.questions.length} Frage(n) · ${formStatusLabel(f)}`,
           emoji: f.emoji || '📋',
         }))
       );
     rows.push(new ActionRowBuilder().addComponents(select));
+
+    // Schnell-Toggle-Buttons (aktivieren/deaktivieren/öffnen/schließen) pro Formular, max 4 Formulare pro Zeile à 5 Buttons gesamt
+    const toggleButtons = forms.slice(0, 5).map(f =>
+      new ButtonBuilder()
+        .setCustomId(`applicationsetup-quicktoggle-${f.formId}`)
+        .setLabel(f.label.slice(0, 30))
+        .setStyle(f.active && !f.closed ? ButtonStyle.Success : ButtonStyle.Secondary)
+        .setEmoji(f.closed ? '🔒' : f.active ? '🟢' : '⚪')
+    );
+    for (let i = 0; i < toggleButtons.length; i += 5) {
+      rows.push(new ActionRowBuilder().addComponents(toggleButtons.slice(i, i + 5)));
+    }
   }
 
   rows.push(
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('applicationsetup-formnew').setLabel('Neues Formular').setStyle(ButtonStyle.Secondary).setEmoji('➕'),
-      new ButtonBuilder().setCustomId('applicationsetup-back').setLabel('Zurück').setStyle(ButtonStyle.Secondary).setEmoji('↩️'),
+      new ButtonBuilder().setCustomId('applicationsetup-overview').setLabel('Zurück').setStyle(ButtonStyle.Secondary).setEmoji('↩️'),
     )
   );
 
   return rows;
+}
+
+function formStatusLabel(form) {
+  if (form.closed) return '🔒 Geschlossen';
+  return form.active ? '🟢 Aktiv' : '⚪ Inaktiv';
 }
 
 function buildFormDetailEmbed(form) {
@@ -130,16 +155,22 @@ function buildFormDetailEmbed(form) {
 
   const pages = new Set(form.questions.map(q => q.page)).size;
 
-  return new EmbedBuilder()
-    .setColor(form.active ? COLOR.success : COLOR.neutral)
+  const embed = new EmbedBuilder()
+    .setColor(form.closed ? COLOR.danger : form.active ? COLOR.success : COLOR.neutral)
     .setTitle(`📋 ${form.label}`)
     .setDescription(form.description || '_Keine Beschreibung_')
     .addFields(
-      { name: 'Status', value: form.active ? '🟢 Aktiv' : '⚪ Inaktiv', inline: true },
+      { name: 'Status', value: formStatusLabel(form), inline: true },
       { name: 'Button-Channel', value: form.buttonChannelId ? `<#${form.buttonChannelId}>` : '_Nicht gesetzt_', inline: true },
       { name: 'Test-Rolle bei Erfolg', value: form.targetTestRoleKey || '_Nicht gesetzt_', inline: true },
       { name: `Fragen (${form.questions.length}, ${pages} Modal-Seite(n))`, value: questionsList },
     );
+
+  if (form.closed && form.closedReason) {
+    embed.addFields({ name: 'Schließungs-Grund (für Bewerber sichtbar)', value: form.closedReason });
+  }
+
+  return embed;
 }
 
 function buildFormDetailComponents(form) {
@@ -160,11 +191,19 @@ function buildFormDetailComponents(form) {
       .setLabel(form.active ? 'Deaktivieren' : 'Aktivieren')
       .setStyle(form.active ? ButtonStyle.Danger : ButtonStyle.Success)
       .setEmoji(form.active ? '🔴' : '🟢'),
+    new ButtonBuilder()
+      .setCustomId(`applicationsetup-formclose-${form.formId}`)
+      .setLabel(form.closed ? 'Wieder öffnen' : 'Schließen (Bereich voll/Fehler)')
+      .setStyle(form.closed ? ButtonStyle.Success : ButtonStyle.Danger)
+      .setEmoji(form.closed ? '🔓' : '🔒'),
+  );
+
+  const row4 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`applicationsetup-formdelete-${form.formId}`).setLabel('Formular löschen').setStyle(ButtonStyle.Danger).setEmoji('🗑️'),
     new ButtonBuilder().setCustomId('applicationsetup-forms').setLabel('Zurück').setStyle(ButtonStyle.Secondary).setEmoji('↩️'),
   );
 
-  return [row1, row2, row3];
+  return [row1, row2, row3, row4];
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +321,7 @@ function buildLockMinutesModal(current) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('minutes')
-          .setLabel('Minuten vor Termin, ab denen Absage gesperrt ist')
+          .setLabel('Minuten vor Termin (Absage-Sperre)') // gekürzt, < 45 Zeichen
           .setPlaceholder('25')
           .setValue(String(current ?? 25))
           .setStyle(TextInputStyle.Short)
@@ -292,7 +331,6 @@ function buildLockMinutesModal(current) {
     );
 }
 
-// Reviewer trägt freie Zeit-Vorschläge ein (Annahme nach Bewerbungs-Review)
 function buildProposeSlotsModal(applicationId) {
   return new ModalBuilder()
     .setCustomId(`application-modal-proposeslots-${applicationId}`)
@@ -333,7 +371,6 @@ function buildApplyButtonComponents(form) {
   ];
 }
 
-// Mehrseitige Modals: baut Modal für eine bestimmte Seite der Fragen
 function buildApplicationModal(form, page, applicationDraftId) {
   const pageQuestions = form.questions.filter(q => q.page === page).slice(0, MAX_QUESTIONS_PER_PAGE);
 
@@ -517,6 +554,66 @@ function buildInterviewDecisionComponents(application) {
   ];
 }
 
+//---------------------------------------------------------------------------
+//Unsotiert
+//---------------------------------------------------------------------------
+
+function buildTemplateListEmbed() {
+  return new EmbedBuilder()
+    .setColor(COLOR.primary)
+    .setTitle('📑 Formular-Vorlagen')
+    .setDescription('Wähle eine Vorlage, um sofort ein fertiges Formular mit Standard-Fragen zu erstellen. Du kannst es danach beliebig anpassen.');
+}
+
+function buildTemplateListComponents(templates) {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId('applicationsetup-templateselect')
+    .setPlaceholder('Vorlage auswählen...')
+    .addOptions(
+      templates.map(t => ({
+        label: t.label,
+        value: t.templateId,
+        description: t.description.slice(0, 100),
+        emoji: t.emoji,
+      }))
+    );
+
+  return [
+    new ActionRowBuilder().addComponents(select),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('applicationsetup-overview').setLabel('Zurück').setStyle(ButtonStyle.Secondary).setEmoji('↩️'),
+    ),
+  ];
+}
+
+function buildCloseReasonSelectRow(formId) {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`applicationsetup-closereasonselect-${formId}`)
+    .setPlaceholder('Grund auswählen...')
+    .addOptions(CLOSE_REASON_PRESETS.map(r => ({ label: r.label, value: r.value })));
+
+  return [new ActionRowBuilder().addComponents(select)];
+}
+
+function buildCloseReasonCustomModal(formId) {
+  return new ModalBuilder()
+    .setCustomId(`applicationsetup-modal-closereason-${formId}`)
+    .setTitle('Grund für Schließung')
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('reason')
+          .setLabel('Grund (wird Bewerbern angezeigt)')
+          .setPlaceholder('z.B. Das Team ist aktuell voll besetzt.')
+          .setStyle(TextInputStyle.Paragraph)
+          .setMaxLength(200)
+          .setRequired(true)
+      ),
+    );
+}
+
+
+
 module.exports = {
   COLOR,
   MAX_QUESTIONS_PER_PAGE,
@@ -553,4 +650,11 @@ module.exports = {
   buildInterviewChannelEmbed,
   buildInterviewNoShowComponents,
   buildInterviewDecisionComponents,
+  
+  formStatusLabel,
+  CLOSE_REASON_PRESETS,
+  buildTemplateListEmbed,
+  buildTemplateListComponents,
+  buildCloseReasonSelectRow,
+  buildCloseReasonCustomModal,
 };

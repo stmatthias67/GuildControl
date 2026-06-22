@@ -35,6 +35,10 @@ const FormSchema = new Schema({
   active: { type: Boolean, default: false },
 }, { _id: false });
 
+  //close-Reason
+  closed: { type: Boolean, default: false },
+  closedReason: { type: String, default: null },
+
 const ApplicationConfigSchema = new Schema({
   guildId: { type: String, required: true, unique: true },
 

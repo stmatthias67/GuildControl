@@ -63,10 +63,17 @@ async function resolveRoleId(guildId, roleKey) {
 
 async function handleApplyButton(interaction, formId) {
   const config = await ApplicationConfig.findOne({ guildId: interaction.guildId });
-  const form = config?.forms.find(f => f.formId === formId && f.active);
+  const form = config?.forms.find(f => f.formId === formId);
 
-  if (!form) {
+  if (!form || !form.active) {
     return interaction.reply({ content: '❌ Dieses Bewerbungsformular ist nicht mehr verfügbar.', ephemeral: true });
+  }
+
+  if (form.closed) {
+    return interaction.reply({
+      content: `🔒 Dieser Bereich ist aktuell geschlossen.\n**Grund:** ${form.closedReason || 'Kein Grund angegeben.'}`,
+      ephemeral: true,
+    });
   }
 
   const blocked = await BlockedApplicant.findOne({ guildId: interaction.guildId, userId: interaction.user.id });
