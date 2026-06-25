@@ -11,7 +11,6 @@ const {
   buildSupportTimesReadOnlyComponents,
   buildChannelSelectRow,
   buildOutsideMessageModal,
-//  DAY_MAP,
 } = require('../utils/voiceBuilder');
 
 async function getOrCreateVoiceConfig(guildId) {
@@ -42,10 +41,10 @@ async function showOverview(interaction) {
   }
 }
 
-async function showWindowList(interaction) {
+async function showSupportTimesReadOnly(interaction) {
   const config = await getOrCreateVoiceConfig(interaction.guildId);
-  const embed = buildWindowListEmbed(config);
-  const components = buildWindowListComponents();
+  const embed = buildSupportTimesReadOnlyEmbed(config);
+  const components = buildSupportTimesReadOnlyComponents();
   await interaction.update({ content: null, embeds: [embed], components });
 }
 
@@ -115,16 +114,8 @@ async function handleVoiceSetupInteraction(interaction) {
     });
   }
 
-  if (id === 'voicesetup-windows') return showWindowList(interaction);
-  if (id === 'voicesetup-windowadd') return interaction.showModal(buildWindowAddModal());
-
-  if (id === 'voicesetup-windowremove') {
-    const config = await getOrCreateVoiceConfig(interaction.guildId);
-    if (!config.supportWindows.length) {
-      return interaction.update({ content: '⚠️ Es gibt keine Supportzeiten zum Entfernen.', embeds: [], components: [] });
-    }
-    return interaction.showModal(buildWindowRemoveModal());
-  }
+  // ── Read-only Supportzeiten-Anzeige ──────────────────────────────────────
+  if (id === 'voicesetup-supporttimes') return showSupportTimesReadOnly(interaction);
 
   if (id === 'voicesetup-outsidemessage') {
     const config = await getOrCreateVoiceConfig(interaction.guildId);
@@ -148,46 +139,6 @@ async function handleVoiceSetupModalSubmit(interaction) {
 
   const id = interaction.customId;
 
-  if (id === 'voicesetup-modal-windowadd') {
-    await interaction.deferUpdate();
-    const config = await getOrCreateVoiceConfig(interaction.guildId);
-
-    const dayRaw = interaction.fields.getTextInputValue('day').trim().toLowerCase();
-    const startRaw = interaction.fields.getTextInputValue('start').trim();
-    const endRaw = interaction.fields.getTextInputValue('end').trim();
-
-    const dayOfWeek = DAY_MAP[dayRaw];
-    const startMinute = parseTimeToMinutes(startRaw);
-    const endMinute = parseTimeToMinutes(endRaw);
-
-    if (dayOfWeek === undefined || startMinute === null || endMinute === null) {
-      return interaction.editReply({
-        content: '⚠️ Ungültige Eingabe. Wochentag: Mo/Di/Mi/Do/Fr/Sa/So, Zeit im Format HH:MM.',
-        embeds: [],
-        components: [],
-      });
-    }
-
-    config.supportWindows.push({ dayOfWeek, startMinute, endMinute });
-    await config.save();
-    return showWindowList(interaction);
-  }
-
-  if (id === 'voicesetup-modal-windowremove') {
-    await interaction.deferUpdate();
-    const config = await getOrCreateVoiceConfig(interaction.guildId);
-    const raw = interaction.fields.getTextInputValue('index').trim();
-    const index = parseInt(raw, 10) - 1;
-
-    if (isNaN(index) || index < 0 || index >= config.supportWindows.length) {
-      return interaction.editReply({ content: '⚠️ Ungültige Nummer.', embeds: [], components: [] });
-    }
-
-    config.supportWindows.splice(index, 1);
-    await config.save();
-    return showWindowList(interaction);
-  }
-
   if (id === 'voicesetup-modal-outsidemessage') {
     await interaction.deferUpdate();
     const config = await getOrCreateVoiceConfig(interaction.guildId);
@@ -195,14 +146,6 @@ async function handleVoiceSetupModalSubmit(interaction) {
     await config.save();
     return showOverview(interaction);
   }
-}
-
-function parseTimeToMinutes(str) {
-  const match = str.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return null;
-  const [, h, m] = match.map(Number);
-  if (h > 23 || m > 59) return null;
-  return h * 60 + m;
 }
 
 module.exports = {
