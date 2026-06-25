@@ -65,7 +65,6 @@ function buildVoiceOverviewComponents(config) {
   return [row1, row2, row3];
 }
 
-// buildWindowListEmbed/Components werden zu read-only Anzeige-Funktionen umbenannt:
 function buildSupportTimesReadOnlyEmbed(config) {
   const windowsText = config.supportWindows.length
     ? config.supportWindows
@@ -187,6 +186,28 @@ function buildOutsideMessageModal(current) {
     );
 }
 
+function generateCaseId() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let id = '';
+  for (let i = 0; i < 10; i++) {
+    id += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return `S-${id}`;
+}
+
+function buildSupportCaseMessage({ roleId, userId, caseId, createdAtUnix }) {
+  return [
+    `-# <@&${roleId}>`,
+    `## 🆘 Ein neuer Support Fall`,
+    '',
+    `<@!${userId}> braucht Hilfe!`,
+    `- 🆔 **CaseID:** \`#${caseId}\``,
+    `- 🕒 **Erstellt am:** <t:${createdAtUnix}:f>`,
+    `- 👤 **Nutzer:** <@${userId}>`,
+    ` -# <@${userId}>`,
+  ].join('\n');
+}
+
 const DAY_MAP = { mo: 1, di: 2, mi: 3, do: 4, fr: 5, sa: 6, so: 0 };
 
 module.exports = {
@@ -199,4 +220,6 @@ module.exports = {
   buildSupportTimesReadOnlyComponents,
   buildChannelSelectRow,
   buildOutsideMessageModal,
+  generateCaseId,
+  buildSupportCaseMessage,
 };

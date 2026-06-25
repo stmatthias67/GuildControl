@@ -12,6 +12,7 @@ const { handleApplicantJoinedInterview } = require('../interactions/applicationH
 const VoiceConfig = require('../models/VoiceConfig');
 const GuildConfig = require('../models/GuildConfig');
 const { playSoundInChannel } = require('../utils/voicePlayback');
+const { generateCaseId, buildSupportCaseMessage } = require('../utils/voiceBuilder');
 
 function isWithinSupportWindow(config, now = new Date()) {
   const dayOfWeek = now.getDay();
@@ -39,17 +40,30 @@ async function handleWaitingRoomJoin(newState) {
     if (voiceConfig.notifyChannelId && voiceConfig.notifyRoleKeys?.length) {
       try {
         const guildConfig = await GuildConfig.findOne({ guildId: newState.guild.id });
-        const roleMentions = voiceConfig.notifyRoleKeys
+        const roleIds = voiceConfig.notifyRoleKeys
           .map(key => guildConfig?.roles?.[key])
-          .filter(Boolean)
-          .map(roleId => `<@&${roleId}>`)
-          .join(' ');
+          .filter(Boolean);
 
-        if (roleMentions) {
+        if (roleIds.length) {
           const notifyChannel = await newState.client.channels.fetch(voiceConfig.notifyChannelId);
-          await notifyChannel.send(
-            `${roleMentions} 🔔 <@${newState.member.id}> ist im Support-Warteraum (<#${channel.id}>).`
-          );
+          const caseId = generateCaseId();
+          const createdAtUnix = Math.floor(Date.now() / 1000);
+
+          // Pro benachrichtigter Rolle eine eigene Subtext-Mention-Zeile oben, alle Rollen in einer Nachricht
+          const rolePings = roleIds.map(id => `<@&${id}>`).join(' ');
+          const message = buildSupportCaseMessage({
+            roleId: roleIds[0], // primäre Rolle für die Subtext-Pingzeile
+            userId: newState.member.id,
+            caseId,
+            createdAtUnix,
+          });
+
+          // Falls mehrere Rollen konfiguriert sind, alle zusätzlich in der ersten Zeile pingen
+          const finalMessage = roleIds.length > 1
+            ? message.replace(`-# <@&${roleIds[0]}>`, `-# ${rolePings}`)
+            : message;
+
+          await notifyChannel.send(finalMessage);
         } else {
           console.warn('[Voice] Keine gültigen Rollen-IDs für notifyRoleKeys gefunden – Benachrichtigung übersprungen.');
         }
@@ -67,6 +81,7 @@ async function handleWaitingRoomJoin(newState) {
 module.exports = {
   name: 'voiceStateUpdate',
   async execute(oldState, newState) {
+    if (newState.member?.user?.bot) return; // Bots (inkl. uns selbst) ignorieren
     if (!newState.channelId || oldState.channelId === newState.channelId) return;
 
     const application = await Application.findOne({
