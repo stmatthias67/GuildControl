@@ -31,12 +31,12 @@ const VoiceConfigSchema = new Schema({
 supportWindows: {
   type: [SupportTimeWindowSchema],
   default: () => ([
-    { dayOfWeek: 1, startMinute: 600, endMinute: 1200 }, // Montag 10:00–20:00
-    { dayOfWeek: 2, startMinute: 600, endMinute: 1200 }, // Dienstag
-    { dayOfWeek: 3, startMinute: 600, endMinute: 1200 }, // Mittwoch
-    { dayOfWeek: 4, startMinute: 600, endMinute: 1200 }, // Donnerstag
-    { dayOfWeek: 5, startMinute: 600, endMinute: 1200 }, // Freitag
-    { dayOfWeek: 6, startMinute: 600, endMinute: 1200 }, // Samstag
+    { dayOfWeek: 1, startMinute: 600, endMinute: 1320 }, // Montag 10:00–22:00
+    { dayOfWeek: 2, startMinute: 600, endMinute: 1320 }, // Dienstag
+    { dayOfWeek: 3, startMinute: 600, endMinute: 1320 }, // Mittwoch
+    { dayOfWeek: 4, startMinute: 600, endMinute: 1320 }, // Donnerstag
+    { dayOfWeek: 5, startMinute: 600, endMinute: 1320 }, // Freitag
+    { dayOfWeek: 6, startMinute: 600, endMinute: 1320 }, // Samstag
   ]),
 },
   // Platzhalter-Sound-Dateien (werden später durch echte Dateien ersetzt)
