@@ -20,6 +20,7 @@ const ticketHandler = require("./interactions/ticketHandler");
 const { handleVerifyButton } = require("./interactions/securitySetupHandler");
 const applicationSetupHandler = require("./interactions/applicationSetupHandler");
 const applicationHandler = require("./interactions/applicationHandler");
+const voiceSetupHandler = require("./interactions/voiceSetupHandler"); // ← NEU
 const { initApplicationScheduler } = require("./utils/applicationScheduler");
 
 // ─────────────────────────────────────────────────────────────
@@ -46,10 +47,11 @@ mongoose.connection.on("disconnected", () => {
 // Models laden
 require("./models/Ticket");
 require("./models/TicketConfig");
-require("./models/SecurityConfig"); // ← NEU
-require("./models/ApplicationConfig"); // ← NEU
-require("./models/Application"); // ← NEU
-require("./models/BlockedApplicant"); // ← NEU
+require("./models/SecurityConfig");
+require("./models/ApplicationConfig");
+require("./models/Application");
+require("./models/BlockedApplicant");
+require("./models/VoiceConfig"); // ← NEU
 
 // ─────────────────────────────────────────────────────────────
 // Client erstellen
@@ -223,6 +225,30 @@ client.on("interactionCreate", async (interaction) => {
           if (!interaction.replied && !interaction.deferred) {
             await interaction.reply({
               content: "❌ Fehler im Bewerbungs-Setup.",
+              ephemeral: true,
+            });
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      return;
+    }
+
+    // ── Voice-Setup (voicesetup-*) ────────────────────────────────────────────
+    if (interaction.customId.startsWith("voicesetup-")) {
+      try {
+        if (interaction.isModalSubmit()) {
+          await voiceSetupHandler.handleVoiceSetupModalSubmit(interaction);
+        } else {
+          await voiceSetupHandler.handleVoiceSetupInteraction(interaction);
+        }
+      } catch (err) {
+        console.error("❌ Fehler im Voice-Setup-Handler:", err);
+        try {
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+              content: "❌ Fehler im Voice-Setup.",
               ephemeral: true,
             });
           }

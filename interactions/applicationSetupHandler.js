@@ -41,6 +41,11 @@ const {
   buildCloseReasonCustomModal,
   CLOSE_REASON_PRESETS,
   MAX_QUESTIONS_PER_PAGE,
+  // Neue Imports für das Nachrichten-Setup:
+  buildMessageSettingsEmbed,
+  buildMessageSettingsComponents,
+  buildMessageEditModal,
+  MESSAGE_SLOTS,
 } = require('../utils/applicationBuilder');
 
 // ---------------------------------------------------------------------------
@@ -97,7 +102,6 @@ async function getConfiguredRoleKeys(guildId) {
     .map(def => ({ key: def.key, label: def.label, emoji: def.emoji }));
 }
 
-// Baut das Haupt-Setup-Menü nach (analog commands/setup.js), für den Zurück-Button
 function buildMainSetupMenu() {
   const embed = new EmbedBuilder()
     .setTitle('⚙️ GuildControl Setup')
@@ -177,6 +181,17 @@ async function showTemplateList(interaction) {
   await interaction.update({ content: null, embeds: [embed], components });
 }
 
+// Neuer Screen für die Nachrichten-Einstellungen
+async function showMessageSettings(interaction, formId) {
+  const config = await getOrCreateApplicationConfig(interaction.guildId);
+  const form = findForm(config, formId);
+  if (!form) return interaction.update({ content: '❌ Formular nicht gefunden.', embeds: [], components: [] });
+
+  const embed = buildMessageSettingsEmbed(form);
+  const components = buildMessageSettingsComponents(form);
+  await interaction.update({ content: null, embeds: [embed], components });
+}
+
 // ---------------------------------------------------------------------------
 // Main entry: Buttons / Select Menus
 // ---------------------------------------------------------------------------
@@ -207,6 +222,16 @@ async function handleApplicationSetupInteraction(interaction) {
       await config.save();
     }
     return showFormDetail(interaction, formId);
+  }
+
+  // Select-Menü für Nachrichten-Slot-Auswahl
+  if (interaction.isStringSelectMenu() && id.startsWith('applicationsetup-msgslotselect-')) {
+    const formId = id.replace('applicationsetup-msgslotselect-', '');
+    const slotKey = interaction.values[0];
+    const config = await getOrCreateApplicationConfig(interaction.guildId);
+    const form = findForm(config, formId);
+    if (!form) return interaction.update({ content: '❌ Formular nicht gefunden.', embeds: [], components: [] });
+    return interaction.showModal(buildMessageEditModal(form, slotKey));
   }
 
   if (interaction.isStringSelectMenu() && id === 'applicationsetup-templateselect') {
@@ -329,6 +354,12 @@ async function handleApplicationSetupInteraction(interaction) {
     return showOverview(interaction);
   }
 
+  // Button "Nachrichten anpassen"
+  if (id.startsWith('applicationsetup-messages-')) {
+    const formId = id.replace('applicationsetup-messages-', '');
+    return showMessageSettings(interaction, formId);
+  }
+
   // ── Zurück ins Haupt-Setup-Menü ──────────────────────────────────────────
   if (id === 'setup-menu-back') {
     return showMainSetupMenu(interaction);
@@ -422,7 +453,6 @@ async function handleFormAction(interaction, action, formId, backToList = false)
 
     case 'formclose': {
       if (form.closed) {
-        // Wieder öffnen
         form.closed = false;
         form.closedReason = null;
         await config.save();
@@ -430,7 +460,6 @@ async function handleFormAction(interaction, action, formId, backToList = false)
         await config.save();
         return showFormDetail(interaction, formId);
       }
-      // Schließen -> Grund abfragen
       return interaction.update({
         content: `Wähle einen Grund für die Schließung von **${form.label}** (wird Bewerbern angezeigt):`,
         embeds: [],
@@ -585,6 +614,28 @@ async function handleApplicationSetupModalSubmit(interaction) {
       await config.save();
     }
     return showFormDetail(interaction, formId);
+  }
+
+  // Submit für das Nachrichten-Edit-Modal
+  const msgEditMatch = id.match(/^applicationsetup-modal-msgedit-(.+)-(accepted|denied|hired|rejectedAfter|reviewChannel)$/);
+  if (msgEditMatch) {
+    await interaction.deferUpdate();
+    const [, formId, slotKey] = msgEditMatch;
+    const config = await getOrCreateApplicationConfig(interaction.guildId);
+    const form = findForm(config, formId);
+
+    if (form) {
+      const text = interaction.fields.getTextInputValue('text').trim();
+      const imageUrl = interaction.fields.getTextInputValue('imageUrl').trim();
+
+      if (!form.messages) form.messages = {};
+      form.messages[slotKey] = {
+        text: text || null,
+        imageUrl: imageUrl || null,
+      };
+      await config.save();
+    }
+    return showMessageSettings(interaction, formId);
   }
 }
 

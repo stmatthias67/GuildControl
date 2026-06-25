@@ -29,6 +29,7 @@ const {
   buildInterviewChannelEmbed,
   buildInterviewNoShowComponents,
   buildInterviewDecisionComponents,
+  renderTemplatedMessage, // Neu importiert
 } = require('../utils/applicationBuilder');
 
 // In-Memory-Zwischenspeicher für laufende Mehrseiten-Bewerbungsentwürfe
@@ -172,7 +173,12 @@ async function handleApplicationModalSubmit(interaction) {
       const channel = await interaction.client.channels.fetch(config.reviewChannelId);
       const embed = buildReviewEmbed(application);
       const components = buildReviewComponents(application);
-      const sent = await channel.send({ embeds: [embed], components });
+      
+      const extra = form.messages?.reviewChannel?.text || null;
+      const sendPayload = { embeds: [embed], components };
+      if (extra) sendPayload.content = extra;
+
+      const sent = await channel.send(sendPayload);
       application.reviewMessageId = sent.id;
       await application.save();
     } catch (err) {
@@ -224,7 +230,10 @@ async function handleReviewDecision(interaction, action, applicationId) {
     await application.save();
 
     await interaction.update({ embeds: [buildReviewEmbed(application)], components: buildReviewComponents(application) });
-    await notifyApplicant(interaction.client, application, '❌ Deine Bewerbung wurde leider abgelehnt.');
+    
+    const config2 = await ApplicationConfig.findOne({ guildId: application.guildId });
+    const form2 = config2?.forms.find(f => f.formId === application.formId);
+    await notifyApplicant(interaction.client, application, '❌ Deine Bewerbung wurde leider abgelehnt.', form2, 'denied');
     return;
   }
 
@@ -264,8 +273,12 @@ async function handleProposeSlotsSubmit(interaction, applicationId) {
   await interaction.editReply({ embeds: [buildReviewEmbed(application)], components: [] });
 
   // Bewerber per DM die Slots anbieten
+  const config3 = await ApplicationConfig.findOne({ guildId: application.guildId });
+  const form3 = config3?.forms.find(f => f.formId === application.formId);
   try {
     const user = await interaction.client.users.fetch(application.userId);
+    const acceptedMsg = renderTemplatedMessage(form3, 'accepted', '✅ Deine Bewerbung wurde angenommen! Bitte wähle einen Termin:');
+    await user.send(acceptedMsg);
     await user.send({
       embeds: [buildSlotChoiceEmbed(application)],
       components: buildSlotChoiceComponents(application),
@@ -509,13 +522,13 @@ async function handleFinalDecision(interaction, action, applicationId) {
     }
 
     await interaction.update({ content: '✅ Bewerber wurde eingestellt und hat die Test-Rolle erhalten.', embeds: [], components: [] });
-    await notifyApplicant(interaction.client, application, `🎉 Herzlichen Glückwunsch! Du wurdest für **${application.formLabel}** angenommen.`);
+    await notifyApplicant(interaction.client, application, `🎉 Herzlichen Glückwunsch! Du wurdest für **${application.formLabel}** angenommen.`, form, 'hired');
   } else {
     application.status = 'rejected';
     await application.save();
 
     await interaction.update({ content: '❌ Bewerber wurde nach dem Gespräch abgelehnt.', embeds: [], components: [] });
-    await notifyApplicant(interaction.client, application, `Nach dem Gespräch haben wir uns entschieden, deine Bewerbung für **${application.formLabel}** nicht weiter zu verfolgen.`);
+    await notifyApplicant(interaction.client, application, `Nach dem Gespräch haben wir uns entschieden, deine Bewerbung für **${application.formLabel}** nicht weiter zu verfolgen.`, form, 'rejectedAfter');
   }
 
   await updateReviewMessage(interaction.client, application);
@@ -526,10 +539,15 @@ async function handleFinalDecision(interaction, action, applicationId) {
 // Helpers: Benachrichtigung, Review-Message-Update, Channel-Cleanup
 // ---------------------------------------------------------------------------
 
-async function notifyApplicant(client, application, message) {
+async function notifyApplicant(client, application, fallbackText, form = null, slotKey = null) {
   try {
     const user = await client.users.fetch(application.userId);
-    await user.send(message);
+    if (form && slotKey) {
+      const payload = renderTemplatedMessage(form, slotKey, fallbackText);
+      await user.send(payload);
+    } else {
+      await user.send(fallbackText);
+    }
   } catch (err) {
     console.error('[applicationHandler] Konnte Bewerber nicht benachrichtigen:', err);
   }

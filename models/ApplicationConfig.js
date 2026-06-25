@@ -8,6 +8,12 @@
 
 const { Schema, model, models } = require('mongoose');
 
+// Neu: Schema für anpassbare Nachrichtenvorlagen
+const MessageTemplateSchema = new Schema({
+  text:     { type: String, default: null },
+  imageUrl: { type: String, default: null },
+}, { _id: false });
+
 const QuestionSchema = new Schema({
   id:        { type: String, required: true },   // z.B. "q1", "q2" – stabil, wird in Modal-CustomId genutzt
   label:     { type: String, required: true },    // Frage-Text (Modal-Feldlabel)
@@ -31,6 +37,15 @@ const FormSchema = new Schema({
   targetTestRoleKey: { type: String, default: null },
 
   questions: { type: [QuestionSchema], default: [] },
+
+  // Neu: Anpassbare Benachrichtigungstexte für die verschiedenen Phasen
+  messages: {
+    accepted:        { type: MessageTemplateSchema, default: () => ({}) }, // DM an Bewerber bei Annahme (vor Terminwahl)
+    denied:          { type: MessageTemplateSchema, default: () => ({}) }, // DM an Bewerber bei direkter Ablehnung
+    hired:           { type: MessageTemplateSchema, default: () => ({}) }, // DM an Bewerber bei finaler Einstellung
+    rejectedAfter:   { type: MessageTemplateSchema, default: () => ({}) }, // DM an Bewerber bei finaler Ablehnung nach Gespräch
+    reviewChannel:   { type: MessageTemplateSchema, default: () => ({}) }, // Zusatztext über dem Review-Embed im Review-Channel
+  },
 
   active: { type: Boolean, default: false },
 

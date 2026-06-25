@@ -36,6 +36,14 @@ const CLOSE_REASON_PRESETS = [
   { value: 'custom', label: 'Eigenen Grund eingeben...' },
 ];
 
+const MESSAGE_SLOTS = [
+  { key: 'accepted', label: 'Annahme (vor Termin)', emoji: '✅' },
+  { key: 'denied', label: 'Direkte Ablehnung', emoji: '❌' },
+  { key: 'hired', label: 'Finale Einstellung', emoji: '🎉' },
+  { key: 'rejectedAfter', label: 'Finale Ablehnung (nach Gespräch)', emoji: '🚫' },
+  { key: 'reviewChannel', label: 'Review-Channel Zusatztext', emoji: '📨' },
+];
+
 // ---------------------------------------------------------------------------
 // SETUP: Übersicht
 // ---------------------------------------------------------------------------
@@ -117,7 +125,6 @@ function buildFormListComponents(config) {
       );
     rows.push(new ActionRowBuilder().addComponents(select));
 
-    // Schnell-Toggle-Buttons (aktivieren/deaktivieren/öffnen/schließen) pro Formular, max 4 Formulare pro Zeile à 5 Buttons gesamt
     const toggleButtons = forms.slice(0, 5).map(f =>
       new ButtonBuilder()
         .setCustomId(`applicationsetup-quicktoggle-${f.formId}`)
@@ -185,6 +192,10 @@ function buildFormDetailComponents(form) {
     new ButtonBuilder().setCustomId(`applicationsetup-formquestionremove-${form.formId}`).setLabel('Frage entfernen').setStyle(ButtonStyle.Secondary).setEmoji('➖'),
   );
 
+  const row2b = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`applicationsetup-messages-${form.formId}`).setLabel('Nachrichten anpassen').setStyle(ButtonStyle.Primary).setEmoji('✉️'),
+  );
+
   const row3 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`applicationsetup-formtoggle-${form.formId}`)
@@ -194,7 +205,7 @@ function buildFormDetailComponents(form) {
     new ButtonBuilder()
       .setCustomId(`applicationsetup-formclose-${form.formId}`)
       .setLabel(form.closed ? 'Wieder öffnen' : 'Schließen (Bereich voll/Fehler)')
-      .setStyle(form.closed ? ButtonStyle.Success : ButtonStyle.Danger)
+      .setStyle(form.closed ? ButtonStyle.Danger : ButtonStyle.Success)
       .setEmoji(form.closed ? '🔓' : '🔒'),
   );
 
@@ -203,7 +214,81 @@ function buildFormDetailComponents(form) {
     new ButtonBuilder().setCustomId('applicationsetup-forms').setLabel('Zurück').setStyle(ButtonStyle.Secondary).setEmoji('↩️'),
   );
 
-  return [row1, row2, row3, row4];
+  return [row1, row2, row2b, row3, row4];
+}
+
+// ---------------------------------------------------------------------------
+// SETUP: Anpassbare Nachrichten-System
+// ---------------------------------------------------------------------------
+
+function buildMessageSettingsEmbed(form) {
+  const lines = MESSAGE_SLOTS.map(slot => {
+    const msg = form.messages?.[slot.key];
+    const hasText = msg?.text ? '✅' : '⚪';
+    const hasImage = msg?.imageUrl ? '🖼️' : '';
+    return `${slot.emoji} **${slot.label}**: ${hasText} ${hasImage}`;
+  }).join('\n');
+
+  return new EmbedBuilder()
+    .setColor(COLOR.primary)
+    .setTitle(`✉️ Nachrichten – ${form.label}`)
+    .setDescription(
+      'Lege für jeden Fall einen eigenen Text und/oder ein Bild fest. Ist nichts gesetzt, wird der Standardtext verwendet.\n\n' + lines
+    );
+}
+
+function buildMessageSettingsComponents(form) {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`applicationsetup-msgslotselect-${form.formId}`)
+    .setPlaceholder('Nachricht auswählen...')
+    .addOptions(MESSAGE_SLOTS.map(s => ({ label: s.label, value: s.key, emoji: s.emoji })));
+
+  return [
+    new ActionRowBuilder().addComponents(select),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`applicationsetup-formedit-${form.formId}`).setLabel('Zurück zum Formular').setStyle(ButtonStyle.Secondary).setEmoji('↩️'),
+    ),
+  ];
+}
+
+function buildMessageEditModal(form, slotKey) {
+  const slot = MESSAGE_SLOTS.find(s => s.key === slotKey);
+  const current = form.messages?.[slotKey] || {};
+
+  return new ModalBuilder()
+    .setCustomId(`applicationsetup-modal-msgedit-${form.formId}-${slotKey}`)
+    .setTitle(`Nachricht: ${slot.label}`.slice(0, 45))
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('text')
+          .setLabel('Text (leer = Standardtext verwenden)')
+          .setStyle(TextInputStyle.Paragraph)
+          .setValue(current.text || '')
+          .setMaxLength(1000)
+          .setRequired(false)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('imageUrl')
+          .setLabel('Bild-URL (optional)')
+          .setStyle(TextInputStyle.Short)
+          .setValue(current.imageUrl || '')
+          .setMaxLength(500)
+          .setRequired(false)
+      ),
+    );
+}
+
+function renderTemplatedMessage(form, slotKey, fallbackText) {
+  const template = form?.messages?.[slotKey];
+  const text = template?.text?.trim() || fallbackText;
+
+  if (template?.imageUrl) {
+    const embed = new EmbedBuilder().setColor(COLOR.primary).setDescription(text).setImage(template.imageUrl);
+    return { embeds: [embed] };
+  }
+  return { content: text };
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +406,7 @@ function buildLockMinutesModal(current) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('minutes')
-          .setLabel('Minuten vor Termin (Absage-Sperre)') // gekürzt, < 45 Zeichen
+          .setLabel('Minuten vor Termin (Absage-Sperre)')
           .setPlaceholder('25')
           .setValue(String(current ?? 25))
           .setStyle(TextInputStyle.Short)
@@ -339,7 +424,7 @@ function buildProposeSlotsModal(applicationId) {
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
           .setCustomId('slots')
-          .setLabel('Termine (TT.MM.JJJJ HH:MM, 1 pro Zeile)') // 43 Zeichen, < 45
+          .setLabel('Termine (TT.MM.JJJJ HH:MM, 1 pro Zeile)')
           .setPlaceholder('21.06.2026 18:00\n22.06.2026 19:30\n23.06.2026 20:00')
           .setStyle(TextInputStyle.Paragraph)
           .setMaxLength(300)
@@ -471,7 +556,6 @@ function buildReviewComponents(application) {
     ];
   }
 
-  // pending review nach Gespräch (interview_done) wird im Interview-Channel entschieden, nicht hier
   return [];
 }
 
@@ -555,7 +639,7 @@ function buildInterviewDecisionComponents(application) {
 }
 
 //---------------------------------------------------------------------------
-//Unsotiert
+// Unsortiert / Sonstiges
 //---------------------------------------------------------------------------
 
 function buildTemplateListEmbed() {
@@ -612,11 +696,11 @@ function buildCloseReasonCustomModal(formId) {
     );
 }
 
-
-
 module.exports = {
   COLOR,
   MAX_QUESTIONS_PER_PAGE,
+  CLOSE_REASON_PRESETS,
+  MESSAGE_SLOTS,
 
   buildApplicationOverviewEmbed,
   buildApplicationOverviewComponents,
@@ -625,6 +709,11 @@ module.exports = {
   buildFormListComponents,
   buildFormDetailEmbed,
   buildFormDetailComponents,
+
+  buildMessageSettingsEmbed,
+  buildMessageSettingsComponents,
+  buildMessageEditModal,
+  renderTemplatedMessage,
 
   buildFormNameModal,
   buildFormEditModal,
@@ -652,7 +741,6 @@ module.exports = {
   buildInterviewDecisionComponents,
   
   formStatusLabel,
-  CLOSE_REASON_PRESETS,
   buildTemplateListEmbed,
   buildTemplateListComponents,
   buildCloseReasonSelectRow,
