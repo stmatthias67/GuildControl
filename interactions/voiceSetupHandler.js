@@ -7,13 +7,11 @@ const { ROLE_DEFINITIONS } = require('../utils/rolePermissions');
 const {
   buildVoiceOverviewEmbed,
   buildVoiceOverviewComponents,
-  buildWindowListEmbed,
-  buildWindowListComponents,
+  buildSupportTimesReadOnlyEmbed,
+  buildSupportTimesReadOnlyComponents,
   buildChannelSelectRow,
-  buildWindowAddModal,
-  buildWindowRemoveModal,
   buildOutsideMessageModal,
-  DAY_MAP,
+//  DAY_MAP,
 } = require('../utils/voiceBuilder');
 
 async function getOrCreateVoiceConfig(guildId) {

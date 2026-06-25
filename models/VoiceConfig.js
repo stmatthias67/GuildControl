@@ -28,13 +28,22 @@ const VoiceConfigSchema = new Schema({
   notifyChannelId: { type: String, default: null },
 
   // Wöchentlich wiederkehrende Supportzeiten
-  supportWindows: { type: [SupportTimeWindowSchema], default: [] },
-
+supportWindows: {
+  type: [SupportTimeWindowSchema],
+  default: () => ([
+    { dayOfWeek: 1, startMinute: 600, endMinute: 1200 }, // Montag 10:00–20:00
+    { dayOfWeek: 2, startMinute: 600, endMinute: 1200 }, // Dienstag
+    { dayOfWeek: 3, startMinute: 600, endMinute: 1200 }, // Mittwoch
+    { dayOfWeek: 4, startMinute: 600, endMinute: 1200 }, // Donnerstag
+    { dayOfWeek: 5, startMinute: 600, endMinute: 1200 }, // Freitag
+    { dayOfWeek: 6, startMinute: 600, endMinute: 1200 }, // Samstag
+  ]),
+},
   // Platzhalter-Sound-Dateien (werden später durch echte Dateien ersetzt)
   // soundFileInsideWindow: gespielt, wenn jemand WÄHREND der Supportzeit joint
   // soundFileOutsideWindow: gespielt, wenn jemand AUSSERHALB der Supportzeit joint
-  soundFileInsideWindow:  { type: String, default: 'PLACEHOLDER_SOUND_INSIDE_WINDOW.mp3' },
-  soundFileOutsideWindow: { type: String, default: 'PLACEHOLDER_SOUND_OUTSIDE_WINDOW.mp3' },
+  soundFileInsideWindow:  { type: String, default: 'assets/sounds/support_welcome_active.mp3' },
+  soundFileOutsideWindow: { type: String, default: 'assets/sounds/support_welcome_outside_hours.mp3' },
 
   // Text, der gesprochen/angezeigt wird, wenn jemand außerhalb der Zeiten joint
   outsideWindowMessage: {

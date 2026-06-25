@@ -53,7 +53,7 @@ function buildVoiceOverviewComponents(config) {
   );
 
   const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('voicesetup-windows').setLabel('Supportzeiten verwalten').setStyle(ButtonStyle.Secondary).setEmoji('🕒'),
+    new ButtonBuilder().setCustomId('voicesetup-supporttimes').setLabel('Supportzeiten').setStyle(ButtonStyle.Secondary).setEmoji('🕒'),
     new ButtonBuilder().setCustomId('voicesetup-outsidemessage').setLabel('Außerhalb-Zeiten-Text').setStyle(ButtonStyle.Secondary).setEmoji('💬'),
   );
 
@@ -63,6 +63,30 @@ function buildVoiceOverviewComponents(config) {
   );
 
   return [row1, row2, row3];
+}
+
+// buildWindowListEmbed/Components werden zu read-only Anzeige-Funktionen umbenannt:
+function buildSupportTimesReadOnlyEmbed(config) {
+  const windowsText = config.supportWindows.length
+    ? config.supportWindows
+        .sort((a, b) => a.dayOfWeek - b.dayOfWeek)
+        .map(w => `**${WEEKDAY_LABELS[w.dayOfWeek]}**: ${minuteToTimeString(w.startMinute)} – ${minuteToTimeString(w.endMinute)} Uhr`)
+        .join('\n')
+    : '_Keine Supportzeiten festgelegt._';
+
+  return new EmbedBuilder()
+    .setColor(COLOR.primary)
+    .setTitle('🕒 Supportzeiten')
+    .setDescription(windowsText)
+    .setFooter({ text: '⚠️ Supportzeiten werden zukünftig nur noch über die Website einstellbar sein.' });
+}
+
+function buildSupportTimesReadOnlyComponents() {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('voicesetup-overview').setLabel('Zurück').setStyle(ButtonStyle.Secondary).setEmoji('↩️'),
+    ),
+  ];
 }
 
 function buildWindowListEmbed(config) {
@@ -171,10 +195,8 @@ module.exports = {
   minuteToTimeString,
   buildVoiceOverviewEmbed,
   buildVoiceOverviewComponents,
-  buildWindowListEmbed,
-  buildWindowListComponents,
+  buildSupportTimesReadOnlyEmbed,
+  buildSupportTimesReadOnlyComponents,
   buildChannelSelectRow,
-  buildWindowAddModal,
-  buildWindowRemoveModal,
   buildOutsideMessageModal,
 };
