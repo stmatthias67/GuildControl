@@ -14,32 +14,27 @@ module.exports = {
       const value = interaction.values[0];
 
       if (value === 'roles') {
-        // startRoleSetup ruft intern interaction.update() auf ✓
-        const { startRoleSetup } = require('./roleSetupHandler'); // Beispiel-Pfad, falls ausgelagert
+        const { startRoleSetup } = require('./roleSetup'); // FIX: richtiger Dateiname
         return startRoleSetup(interaction);
       }
 
       if (value === 'tickets') {
-        // showTicketSetup erwartet eine Interaction – intern deferReply/editReply
-        // Wir deferren zuerst als Update, damit die Haupt-Nachricht aktualisiert wird
         await interaction.deferUpdate();
-        const { showTicketSetup } = require('./ticketSetupHandler');
-        return showTicketSetup(interaction);
+        const { showSetupOverview } = require('./ticketHandler'); // FIX: richtiger Datei- UND Funktionsname
+        return showSetupOverview(interaction);
       }
 
       if (value === 'security') {
-        // showSecuritySetup → intern deferReply/editReply
         await interaction.deferUpdate();
-        const { showSecuritySetup } = require('./securitySetupHandler');
-        return showSecuritySetup(interaction);
+        const { showSetupOverview } = require('./securitySetupHandler'); // FIX: richtiger Funktionsname
+        return showSetupOverview(interaction);
       }
 
       if (value === 'rank') {
-        // showRankSetup erkennt bereits deferred Interactions und nutzt update()
         const { showRankSetup } = require('./rankSetupHandler');
         return showRankSetup(interaction);
       }
-      
+
       if (value === 'applications') {
         const { showOverview } = require('./applicationSetupHandler');
         return showOverview(interaction);
@@ -49,7 +44,7 @@ module.exports = {
         const { showOverview } = require('./voiceSetupHandler');
         return showOverview(interaction);
       }
-      
+
       // Platzhalter für noch nicht implementierte Systeme → update() statt reply()
       const placeholders = {
         stats: '📊 Statistik Setup',
@@ -61,7 +56,6 @@ module.exports = {
           .setDescription('⚠️ Dieses System wird bald verfügbar sein!')
           .setColor(0xfee75c);
 
-        // Aktualisiert die bestehende Nachricht mit dem Platzhalter-Embed
         return await interaction.update({ embeds: [embed], components: [] });
       }
     }
