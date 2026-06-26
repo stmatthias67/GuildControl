@@ -337,5 +337,4 @@ module.exports = {
   buildChannelSelectRow,
   buildOutsideMessageModal,
   generateCaseId,
-  buildSupportCaseMessage,
 };
