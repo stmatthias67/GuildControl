@@ -1,37 +1,56 @@
 'use strict';
 
-/**
- * voicePlayback.js
- * Verbindet den Bot mit einem Voice-Channel und spielt eine Sound-Datei ab.
- * Benötigt @discordjs/voice, @discordjs/opus, ffmpeg-static (npm install).
- */
-
 let voiceLib = null;
 try {
   voiceLib = require('@discordjs/voice');
 } catch (err) {
-  console.warn('[voicePlayback] @discordjs/voice ist nicht installiert. Audio-Wiedergabe ist deaktiviert. Führe "npm install @discordjs/voice @discordjs/opus ffmpeg-static" aus, um dieses Feature zu aktivieren.');
+  console.warn('[voicePlayback] @discordjs/voice ist nicht installiert. Audio-Wiedergabe ist deaktiviert.');
 }
 
 const fs = require('fs');
 const path = require('path');
 
-async function playSoundInChannel(channel, soundFilePath) {
+function resolvePath(soundFilePath) {
+  return path.isAbsolute(soundFilePath) ? soundFilePath : path.join(process.cwd(), soundFilePath);
+}
+
+// Spielt eine einzelne Datei ab und wartet (per Promise), bis sie fertig ist.
+function playOnce(player, soundFilePath) {
+  return new Promise((resolve, reject) => {
+    const absolutePath = resolvePath(soundFilePath);
+
+    if (!fs.existsSync(absolutePath)) {
+      console.warn(`[voicePlayback] Sound-Datei nicht gefunden: ${absolutePath}`);
+      return resolve(); // überspringen statt die ganze Sequenz abzubrechen
+    }
+
+    const { createAudioResource } = voiceLib;
+    const resource = createAudioResource(absolutePath);
+
+    const onIdle = () => {
+      player.off('error', onError);
+      resolve();
+    };
+    const onError = (err) => {
+      player.off('idle', onIdle);
+      console.error('[voicePlayback] Player-Fehler:', err);
+      resolve(); // Sequenz trotzdem fortsetzen
+    };
+
+    player.once('idle', onIdle);
+    player.once('error', onError);
+    player.play(resource);
+  });
+}
+
+// Verbindet sich einmalig und spielt: intro -> loopFile x loopCount -> outro, dann trennt die Verbindung.
+async function playSequenceInChannel(channel, { intro, loopFile, loopCount = 1, outro }) {
   if (!voiceLib) {
     console.warn('[voicePlayback] Wiedergabe übersprungen – @discordjs/voice fehlt.');
     return;
   }
 
-  const absolutePath = path.isAbsolute(soundFilePath)
-    ? soundFilePath
-    : path.join(process.cwd(), soundFilePath);
-
-  if (!fs.existsSync(absolutePath)) {
-    console.warn(`[voicePlayback] Sound-Datei nicht gefunden: ${absolutePath}`);
-    return;
-  }
-
-  const { joinVoiceChannel, createAudioPlayer, createAudioResource, VoiceConnectionStatus, entersState } = voiceLib;
+  const { joinVoiceChannel, createAudioPlayer, VoiceConnectionStatus, entersState } = voiceLib;
 
   const connection = joinVoiceChannel({
     channelId: channel.id,
@@ -43,20 +62,29 @@ async function playSoundInChannel(channel, soundFilePath) {
     await entersState(connection, VoiceConnectionStatus.Ready, 10_000);
 
     const player = createAudioPlayer();
-    const resource = createAudioResource(absolutePath);
-
-    player.play(resource);
     connection.subscribe(player);
 
-    player.on('idle', () => connection.destroy());
-    player.on('error', (err) => {
-      console.error('[voicePlayback] Player-Fehler:', err);
-      connection.destroy();
-    });
+    if (intro) await playOnce(player, intro);
+
+    for (let i = 0; i < loopCount; i++) {
+      if (loopFile) await playOnce(player, loopFile);
+    }
+
+    if (outro) await playOnce(player, outro);
   } catch (err) {
     console.error('[voicePlayback] Verbindung fehlgeschlagen:', err);
+  } finally {
     connection.destroy();
   }
 }
 
-module.exports = { playSoundInChannel, isVoiceLibAvailable: () => !!voiceLib };
+// Beibehalten für Fälle, in denen nur EIN Sound gebraucht wird (z.B. außerhalb der Zeiten)
+async function playSoundInChannel(channel, soundFilePath) {
+  return playSequenceInChannel(channel, { intro: soundFilePath, loopFile: null, loopCount: 0, outro: null });
+}
+
+module.exports = {
+  playSoundInChannel,
+  playSequenceInChannel,
+  isVoiceLibAvailable: () => !!voiceLib,
+};

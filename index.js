@@ -18,10 +18,13 @@ const path = require("path");
 const setupHandler = require("./interactions/setupHandler");
 const ticketHandler = require("./interactions/ticketHandler");
 const { handleVerifyButton } = require("./interactions/securitySetupHandler");
+
 const applicationSetupHandler = require("./interactions/applicationSetupHandler");
 const applicationHandler = require("./interactions/applicationHandler");
-const voiceSetupHandler = require("./interactions/voiceSetupHandler"); // ← NEU
 const { initApplicationScheduler } = require("./utils/applicationScheduler");
+
+const voiceSetupHandler = require("./interactions/voiceSetupHandler");
+const supportCaseHandler = require("./interactions/supportCaseHandler");
 
 // ─────────────────────────────────────────────────────────────
 // MongoDB verbinden
@@ -31,7 +34,6 @@ mongoose
   .then(() => console.log("✅ MongoDB verbunden"))
   .catch((err) => console.error("❌ Mongo Fehler:", err));
 
-//Ob Mango überhaupt verbuinden ist
 mongoose.connection.on("connected", () => {
   console.log("🟢 DB CONNECTED");
 });
@@ -48,10 +50,14 @@ mongoose.connection.on("disconnected", () => {
 require("./models/Ticket");
 require("./models/TicketConfig");
 require("./models/SecurityConfig");
+require("./models/RankConfig");
+
 require("./models/ApplicationConfig");
 require("./models/Application");
 require("./models/BlockedApplicant");
-require("./models/VoiceConfig"); // ← NEU
+
+require("./models/VoiceConfig");
+require("./models/SupportCase");
 
 // ─────────────────────────────────────────────────────────────
 // Client erstellen
@@ -61,7 +67,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers, // Für guildMemberAdd + AutoMod Bypass-Check
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildVoiceStates,
   ],
 });
@@ -140,6 +146,7 @@ client.once("ready", async () => {
 // ─────────────────────────────────────────────────────────────
 client.on("interactionCreate", async (interaction) => {
   console.log("[INTERACTION]", interaction.customId, interaction.type);
+
   // ── Slash Commands ──────────────────────────────────────────────────────────
   if (interaction.isChatInputCommand()) {
     console.log("➡️ Command bekommen:", interaction.commandName);
@@ -235,7 +242,27 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // ── Voice-Setup (voicesetup-*) ────────────────────────────────────────────
+    // ── Bewerbungs-Live-System (application-*) ────────────────────────────────
+    if (interaction.customId.startsWith("application-")) {
+      try {
+        await handleApplicationLiveInteraction(interaction, client);
+      } catch (err) {
+        console.error("❌ Fehler im Bewerbungs-Live-Handler:", err);
+        try {
+          if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+              content: "❌ Fehler im Bewerbungssystem.",
+              ephemeral: true,
+            });
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      return;
+    }
+
+    // ── Voice-Setup (voicesetup-*) ─────────────────────────────────────────────
     if (interaction.customId.startsWith("voicesetup-")) {
       try {
         if (interaction.isModalSubmit()) {
@@ -259,16 +286,16 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // ── Bewerbungs-Live-System (application-*) ────────────────────────────────
-    if (interaction.customId.startsWith("application-")) {
+    // ── Support-Case-System (supportcase-*) ────────────────────────────────────
+    if (interaction.customId.startsWith("supportcase-")) {
       try {
-        await handleApplicationLiveInteraction(interaction, client);
+        await handleSupportCaseRouting(interaction);
       } catch (err) {
-        console.error("❌ Fehler im Bewerbungs-Live-Handler:", err);
+        console.error("❌ Fehler im Support-Case-Handler:", err);
         try {
           if (!interaction.replied && !interaction.deferred) {
             await interaction.reply({
-              content: "❌ Fehler im Bewerbungssystem.",
+              content: "❌ Fehler im Support-System.",
               ephemeral: true,
             });
           }
@@ -279,7 +306,7 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    // ── Setup System (inkl. Security) ─────────────────────────────────────────
+    // ── Setup System (inkl. Security, Roles, Ranks) ───────────────────────────
     const isSetupInteraction =
       interaction.customId.startsWith("setup-") ||
       interaction.customId.startsWith("role-setup-") ||
@@ -373,6 +400,64 @@ async function handleApplicationLiveInteraction(interaction, client) {
   const rejectMatch = id.match(/^application-reject-(.+)$/);
   if (rejectMatch) {
     return applicationHandler.handleFinalDecision(interaction, "reject", rejectMatch[1]);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Support-Case-System: Routing-Helper
+// ─────────────────────────────────────────────────────────────
+async function handleSupportCaseRouting(interaction) {
+  const id = interaction.customId;
+
+  if (interaction.isModalSubmit()) {
+    const closeMatch = id.match(/^supportcase-modal-close-(.+)$/);
+    if (closeMatch) {
+      return supportCaseHandler.handleCloseModalSubmit(interaction, closeMatch[1]);
+    }
+
+    const cancelMatch = id.match(/^supportcase-modal-cancelreason-(.+)$/);
+    if (cancelMatch) {
+      return supportCaseHandler.handleCancelReasonModalSubmit(interaction, cancelMatch[1]);
+    }
+    return;
+  }
+
+  if (interaction.isStringSelectMenu()) {
+    const cancelSelectMatch = id.match(/^supportcase-cancelreasonselect-(.+)$/);
+    if (cancelSelectMatch) {
+      return supportCaseHandler.handleCancelReasonSelect(interaction, cancelSelectMatch[1]);
+    }
+
+    const callRoleSelectMatch = id.match(/^supportcase-callroleselect-(.+)$/);
+    if (callRoleSelectMatch) {
+      return supportCaseHandler.handleCallRoleSelect(interaction, callRoleSelectMatch[1]);
+    }
+    return;
+  }
+
+  const claimMatch = id.match(/^supportcase-claim-(.+)$/);
+  if (claimMatch) {
+    return supportCaseHandler.handleClaimCase(interaction, claimMatch[1]);
+  }
+
+  const closeMatch = id.match(/^supportcase-close-(.+)$/);
+  if (closeMatch) {
+    return supportCaseHandler.handlePanelClose(interaction, closeMatch[1]);
+  }
+
+  const cancelMatch = id.match(/^supportcase-cancel-(.+)$/);
+  if (cancelMatch) {
+    return supportCaseHandler.handlePanelCancel(interaction, cancelMatch[1]);
+  }
+
+  const escalateMatch = id.match(/^supportcase-escalate-(.+)$/);
+  if (escalateMatch) {
+    return supportCaseHandler.handleEscalate(interaction, escalateMatch[1]);
+  }
+
+  const callroleMatch = id.match(/^supportcase-callrole-(.+)$/);
+  if (callroleMatch) {
+    return supportCaseHandler.handleCallSpecificRole(interaction, callroleMatch[1]);
   }
 }
 
