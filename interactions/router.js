@@ -22,6 +22,9 @@ const applicationHandler = require('./applicationHandler');
 const voiceSetupHandler = require('./voiceSetupHandler');
 const supportCaseHandler = require('./supportCaseHandler');
 
+const { handleRoleSetupInteraction } = require('./roleSetup');
+const { handleRankSetupInteraction } = require('./rankSetupHandler');
+
 // ---------------------------------------------------------------------------
 // Bewerbungs-Live-System: Routing-Helper (unverändert aus index.js übernommen)
 // ---------------------------------------------------------------------------
@@ -140,6 +143,24 @@ const ROUTES = [
     errorLabel: 'Ticket-System',
   },
   {
+    name: 'role-setup',
+    matches: (id) => id.startsWith('role-setup-'),
+    handle: (interaction) => handleRoleSetupInteraction(interaction),
+    errorLabel: 'Rollen-Setup',
+  },
+  {
+    name: 'rank-setup',
+    matches: (id) => id.startsWith('ranksetup-'),
+    handle: (interaction) => handleRankSetupInteraction(interaction),
+    errorLabel: 'Rank-Setup',
+  },
+  {
+    name: 'security-setup',
+    matches: (id) => id.startsWith('securitysetup-'),
+    handle: (interaction, client) => require('./securitySetupHandler').execute(interaction, client),
+    errorLabel: 'Security-Setup',
+  },
+  {
     name: 'application-setup',
     matches: (id) => id.startsWith('applicationsetup-'),
     handle: (interaction) =>
@@ -171,13 +192,9 @@ const ROUTES = [
   },
   {
     name: 'main-setup',
-    matches: (id) =>
-      id.startsWith('setup-') ||
-      id.startsWith('role-setup-') ||
-      id.startsWith('securitysetup-') ||
-      id.startsWith('ranksetup-'),
+    matches: (id) => id.startsWith('setup-'),
     handle: (interaction, client) => setupHandler.execute(interaction, client),
-    errorLabel: 'Setup-System',
+    errorLabel: 'Setup-Hauptmenü',
   },
 ];
 
