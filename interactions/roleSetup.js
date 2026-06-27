@@ -52,6 +52,71 @@ function buildProgressBar(current, total) {
   return `${"█".repeat(filled)}${"░".repeat(empty)} ${current}/${total}`;
 }
 
+function buildRoleOverviewEmbed(config) {
+  const savedRoles = config?.roles || {};
+
+  const roleLines = ROLE_DEFINITIONS.map((def, index) => {
+    const id = savedRoles[def.key];
+    const status = id ? `<@&${id}>` : '`Nicht konfiguriert`';
+    return `${def.emoji} **${index + 1}. ${def.label}** — ${status}`;
+  }).join('\n');
+
+  const configuredCount = ROLE_DEFINITIONS.filter(def => savedRoles[def.key]).length;
+
+  return new EmbedBuilder()
+    .setTitle('👑 Rollen Setup — Übersicht')
+    .setDescription(
+      `Hier siehst du den aktuellen Stand aller Team-Rollen.\n\n${roleLines}`
+    )
+    .addFields({ name: 'Fortschritt', value: `${configuredCount} / ${TOTAL} konfiguriert` })
+    .setColor(COLORS.primary)
+    .setFooter({ text: 'GuildControl • Rollen Setup' });
+}
+
+function buildRoleOverviewComponents() {
+  const { StringSelectMenuBuilder } = require('discord.js');
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId('role-setup-jumpto')
+    .setPlaceholder('Rolle direkt bearbeiten...')
+    .addOptions(
+      ROLE_DEFINITIONS.map((def, index) => ({
+        label: def.label,
+        value: String(index),
+        emoji: def.emoji,
+        description: def.description.slice(0, 100),
+      }))
+    );
+
+  const buttonRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('role-setup-startwizard')
+      .setLabel('Setup von vorne starten')
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji('🔁'),
+    new ButtonBuilder()
+      .setCustomId('setup-menu-back')
+      .setLabel('Zurück')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('↩️'),
+  );
+
+  return [new ActionRowBuilder().addComponents(select), buttonRow];
+}
+
+async function showRoleOverview(interaction) {
+  const guildId = interaction.guild.id;
+  const config = await GuildConfig.findOne({ guildId });
+
+  const embed = buildRoleOverviewEmbed(config);
+  const components = buildRoleOverviewComponents();
+
+  if (interaction.deferred || interaction.replied) {
+    return interaction.editReply({ content: null, embeds: [embed], components });
+  }
+  return interaction.update({ embeds: [embed], components });
+}
+
 function resolvePermName(permFlag) {
   const map = {
     [BigInt("0x8")]: "Administrator",
@@ -100,35 +165,41 @@ function buildRoleComponents(stepIndex, selectedRoleId) {
       .setStyle(ButtonStyle.Secondary)
   );
 
-  return [selectRow, buttonRow];
+  const navRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('role-setup-overview')
+        .setLabel('Zur Übersicht')
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji('🗂️'),
+    );
+
+  return [selectRow, buttonRow, navRow];
 }
 
+// ALT: startRoleSetup sprang direkt in Schritt 0 des Assistenten.
+// NEU: startRoleSetup zeigt die Übersicht. Der Assistent wird über einen
+// eigenen Button ("role-setup-startwizard") oder per Sprung-Auswahl erreicht.
+
 async function startRoleSetup(interaction) {
+  return showRoleOverview(interaction);
+}
+
+// Neue Funktion für den Sprung in einen bestimmten Schritt (ersetzt die alte Direktlogik):
+async function startWizardAtStep(interaction, stepIndex) {
   const guildId = interaction.guild.id;
   const config = await GuildConfig.findOne({ guildId });
-  const firstKey = ROLE_DEFINITIONS[0].key;
-  const savedRoleId = config?.roles?.[firstKey] || null;
+  const def = ROLE_DEFINITIONS[stepIndex];
+  const savedRoleId = config?.roles?.[def.key] || null;
 
-  roleSessions.set(guildId, {
-    stepIndex: 0,
-    selectedRoleId: savedRoleId
-  });
+  roleSessions.set(guildId, { stepIndex, selectedRoleId: savedRoleId });
 
-  const embed = buildRoleEmbed(
-    0,
-    savedRoleId,
-    interaction.guild
-  );
+  const embed = buildRoleEmbed(stepIndex, savedRoleId, interaction.guild);
+  const components = buildRoleComponents(stepIndex, savedRoleId);
 
-  const components = buildRoleComponents(
-    0,
-    savedRoleId
-  );
-
-  await interaction.update({
-    embeds: [embed],
-    components
-  });
+  if (interaction.deferred || interaction.replied) {
+    return interaction.editReply({ content: null, embeds: [embed], components });
+  }
+  return interaction.update({ embeds: [embed], components });
 }
 
 async function handleRoleSetupInteraction(interaction) {
@@ -136,6 +207,19 @@ async function handleRoleSetupInteraction(interaction) {
   const [action, stepStr] = interaction.customId.split(":");
   const stepIndex = parseInt(stepStr, 10);
   const session = roleSessions.get(guildId) || { stepIndex, selectedRoleId: null };
+
+  if (id === 'role-setup-startwizard') {
+    return startWizardAtStep(interaction, 0);
+  }
+
+  if (id === 'role-setup-jumpto' && interaction.isStringSelectMenu()) {
+    const stepIndex = parseInt(interaction.values[0], 10);
+    return startWizardAtStep(interaction, stepIndex);
+  }
+
+  if (id === 'role-setup-overview') {
+    return showRoleOverview(interaction);
+  }
 
   if (action === "role-setup-select") {
     const selected = interaction.values?.[0];
@@ -276,6 +360,18 @@ async function handleRoleSetupInteraction(interaction) {
   if (action === "role-setup-skip") {
     await interaction.deferUpdate();
     await advanceStep(interaction, guildId, stepIndex);
+    await interaction.editReply({
+      embeds: [finishEmbed],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('role-setup-overview')
+            .setLabel('Zur Übersicht')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🗂️'),
+        ),
+      ],
+    });
     return;
   }
 }

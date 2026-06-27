@@ -222,11 +222,6 @@ function buildOverviewComponents() {
 
   const row3 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId("ticketsetup-finish")
-      .setLabel("Setup abschließen")
-      .setStyle(ButtonStyle.Success)
-      .setEmoji("✅"),
-    new ButtonBuilder()
       .setCustomId("ticketsetup-reset")
       .setLabel("Zurücksetzen")
       .setStyle(ButtonStyle.Danger)
@@ -993,8 +988,12 @@ async function handleEditRoles(interaction) {
 async function handleSetupSendPanel(interaction) {
   try {
     const cfg = await getOrCreateConfig(interaction.guild.id);
-    if (!cfg.createChannelId) {
-      await interaction.editReply({ content: "❌ Bitte konfiguriere zuerst den Erstell-Kanal.", embeds: [], components: buildOverviewComponents() });
+    if (!cfg.createChannelId || !cfg.logChannelId || cfg.categories.length === 0) {
+      await interaction.editReply({
+        content: "❌ Bitte konfiguriere zuerst Kanäle und mindestens eine Kategorie, bevor du das Panel sendest.",
+        embeds: [],
+        components: buildOverviewComponents(),
+      });
       return;
     }
     await interaction.editReply({
