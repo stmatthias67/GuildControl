@@ -189,49 +189,56 @@ function buildOverviewEmbed(cfg, setupRoles = []) {
 }
 
 function buildOverviewComponents() {
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId("ticketsetup-menu")
-    .setPlaceholder("Schritt auswählen...")
-    .addOptions([
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Kanäle konfigurieren")
-        .setDescription("Erstell-, Log- und Claim-Kanal festlegen")
-        .setValue("channels")
-        .setEmoji("📌"),
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Kategorien konfigurieren")
-        .setDescription("Ticket-Arten aktivieren")
-        .setValue("categories")
-        .setEmoji("🎟️"),
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Benachrichtigungs-Rollen bearbeiten")
-        .setDescription("Rollen pro Kategorie jederzeit ändern")
-        .setValue("editroles")
-        .setEmoji("👮"),
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Max. Tickets pro User")
-        .setDescription("Wie viele Tickets ein User gleichzeitig haben darf")
-        .setValue("maxtickets")
-        .setEmoji("🔢"),
-      new StringSelectMenuOptionBuilder()
-        .setLabel("Ticket-Panel senden")
-        .setDescription("Panel in den Erstell-Kanal posten")
-        .setValue("sendpanel")
-        .setEmoji("📤")
-    ]);
-
-  const buttons = new ActionRowBuilder().addComponents(
+  const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId("ticketsetup-finish")
-      .setLabel("✅ Setup abschließen")
-      .setStyle(ButtonStyle.Success),
+      .setCustomId("ticketsetup-channels")
+      .setLabel("Kanäle konfigurieren")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("📌"),
     new ButtonBuilder()
-      .setCustomId("ticketsetup-reset")
-      .setLabel("🔄 Zurücksetzen")
-      .setStyle(ButtonStyle.Danger)
+      .setCustomId("ticketsetup-categories")
+      .setLabel("Kategorien konfigurieren")
+      .setStyle(ButtonStyle.Primary)
+      .setEmoji("🎟️"),
   );
 
-  return [new ActionRowBuilder().addComponents(menu), buttons];
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("ticketsetup-editroles")
+      .setLabel("Benachrichtigungs-Rollen")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("👮"),
+    new ButtonBuilder()
+      .setCustomId("ticketsetup-maxtickets")
+      .setLabel("Max. Tickets pro User")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("🔢"),
+    new ButtonBuilder()
+      .setCustomId("ticketsetup-sendpanel")
+      .setLabel("Ticket-Panel senden")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("📤"),
+  );
+
+  const row3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("ticketsetup-finish")
+      .setLabel("Setup abschließen")
+      .setStyle(ButtonStyle.Success)
+      .setEmoji("✅"),
+    new ButtonBuilder()
+      .setCustomId("ticketsetup-reset")
+      .setLabel("Zurücksetzen")
+      .setStyle(ButtonStyle.Danger)
+      .setEmoji("🔄"),
+    new ButtonBuilder()
+      .setCustomId("setup-menu-back")
+      .setLabel("Zurück")
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji("↩️"),
+  );
+
+  return [row1, row2, row3];
 }
 
 // ── Einstiegspunkt für setupHandler.js ───────────────────────────────────────
@@ -267,17 +274,52 @@ const execute = async (interaction, client) => {
   // SETUP FLOW
   // ═══════════════════════════════════════════════════════════════════════════
 
-  if (id === "ticketsetup-menu" && interaction.isStringSelectMenu()) {
+  if (id === "ticketsetup-channels") {
     try {
       await interaction.deferUpdate().catch(() => {});
-      const value = interaction.values[0];
-      if (value === "channels")   return handleSetupChannels(interaction);
-      if (value === "categories") return handleSetupCategories(interaction);
-      if (value === "editroles")  return handleEditRoles(interaction);
-      if (value === "maxtickets") return handleSetupMaxTickets(interaction);
-      if (value === "sendpanel")  return handleSetupSendPanel(interaction);
+      return handleSetupChannels(interaction);
     } catch (error) {
-      console.error("[SETUP ERROR] ticketsetup-menu:", error);
+      console.error("[SETUP ERROR] ticketsetup  -channels:", error);
+    }
+    return;
+  }
+
+  if (id === "ticketsetup-categories") {
+    try {
+      await interaction.deferUpdate().catch(() => {});
+      return handleSetupCategories(interaction);
+    } catch (error) {
+      console.error("[SETUP ERROR] ticketsetup-categories:", error);
+    }
+    return;
+  }
+
+  if (id === "ticketsetup-editroles") {
+    try {
+      await interaction.deferUpdate().catch(() => {});
+      return handleEditRoles(interaction);
+    } catch (error) {
+      console.error("[SETUP ERROR] ticketsetup-editroles:", error);
+    }
+    return;
+  }
+
+  if (id === "ticketsetup-maxtickets") {
+    try {
+      await interaction.deferUpdate().catch(() => {});
+      return handleSetupMaxTickets(interaction);
+    } catch (error) {
+      console.error("[SETUP ERROR] ticketsetup-maxtickets:", error);
+    }
+    return;
+  }
+
+  if (id === "ticketsetup-sendpanel") {
+    try {
+      await interaction.deferUpdate().catch(() => {});
+      return handleSetupSendPanel(interaction);
+    } catch (error) {
+      console.error("[SETUP ERROR] ticketsetup-sendpanel:", error);
     }
     return;
   }
