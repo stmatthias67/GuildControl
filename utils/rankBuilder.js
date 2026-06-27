@@ -23,12 +23,14 @@ const {
 
 const { TEMPLATES } = require('../models/LevelRole');
 
+const { COLORS } = require('./uiTheme');
+
 // ─── Farb-Konstanten ──────────────────────────────────────────────────────────
-const COLOR_MAIN    = 0x5865F2; // Blurple – Übersicht
-const COLOR_SUCCESS = 0x57F287; // Grün
-const COLOR_WARNING = 0xFEE75C; // Gelb
-const COLOR_DANGER  = 0xED4245; // Rot
-const COLOR_RANK    = 0xFFD700; // Gold – Rang-Rollen Screen
+const COLOR_MAIN    = COLORS.primary; // Blurple – Übersicht
+const COLOR_SUCCESS = COLORS.success; // Grün
+const COLOR_WARNING = COLORS.warning; // Gelb
+const COLOR_DANGER  = COLORS.danger;  // Rot
+const COLOR_RANK    = 0xFFD700;
 
 // ─── Hilfsfunktionen ─────────────────────────────────────────────────────────
 

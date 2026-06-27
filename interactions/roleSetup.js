@@ -8,6 +8,7 @@ const {
 const GuildConfig = require("../models/GuildConfig");
 const { ROLE_DEFINITIONS } = require("../utils/rolePermissions");
 const { createRoleForKey, applyPermissionsToRole } = require("../utils/setupRoles");
+const { COLORS } = require('../utils/uiTheme');
 
 // In-Memory Session Store: guildId → { stepIndex, selectedRoleId }
 const roleSessions = new Map();
@@ -167,7 +168,7 @@ async function handleRoleSetupInteraction(interaction) {
       const successEmbed = new EmbedBuilder()
         .setTitle("✅ Rolle erstellt")
         .setDescription(`Die Rolle ${role} wurde automatisch erstellt und konfiguriert.`)
-        .setColor(0x2ecc71)
+        .setColor(COLORS.success)
         .setFooter({ text: "GuildControl • Rollen Setup" });
 
       await interaction.editReply({
@@ -202,7 +203,7 @@ async function handleRoleSetupInteraction(interaction) {
       const successEmbed = new EmbedBuilder()
         .setTitle("🔧 Rechte gesetzt")
         .setDescription(`Die Rechte für <@&${roleId}> wurden erfolgreich aktualisiert.`)
-        .setColor(0x3498db)
+        .setColor(COLORS.primary)
         .setFooter({ text: "GuildControl • Rollen Setup" });
 
       await interaction.editReply({
@@ -298,7 +299,7 @@ async function advanceStep(interaction, guildId, currentIndex) {
       .setDescription(
         "Alle Rollen wurden erfolgreich konfiguriert und gespeichert.\n\n" + roleLines
       )
-      .setColor(0x2ecc71)
+      .setColor(COLORS.success)
       .setFooter({ text: "GuildControl • Rollen Setup" })
       .setTimestamp();
 

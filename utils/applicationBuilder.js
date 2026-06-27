@@ -19,13 +19,7 @@ const {
   ChannelType,
 } = require('discord.js');
 
-const COLOR = {
-  primary: 0x2b6cb0,
-  success: 0x2f9e44,
-  danger: 0xe03131,
-  warning: 0xf08c00,
-  neutral: 0x4a4a4a,
-};
+const { COLORS: COLOR } = require('./uiTheme');
 
 const MAX_QUESTIONS_PER_PAGE = 5;
 

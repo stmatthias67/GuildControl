@@ -15,7 +15,7 @@ const {
 
 const { ROLE_DEFINITIONS } = require('./rolePermissions');
 
-const COLOR = { primary: 0x2b6cb0, success: 0x2f9e44, danger: 0xe03131, neutral: 0x4a4a4a };
+const { COLORS: COLOR } = require('./uiTheme');
 
 const WEEKDAY_LABELS = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 
