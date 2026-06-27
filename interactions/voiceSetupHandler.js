@@ -117,19 +117,7 @@ async function handleVoiceSetupInteraction(interaction) {
   // ── Read-only Supportzeiten-Anzeige ──────────────────────────────────────
   if (id === 'voicesetup-supporttimes') return showSupportTimesReadOnly(interaction);
 
-  if (id === 'voicesetup-outsidemessage') {
-    const config = await getOrCreateVoiceConfig(interaction.guildId);
-    return interaction.showModal(buildOutsideMessageModal(config.outsideWindowMessage));
-  }
-
   if (id === 'voicesetup-overview') return showOverview(interaction);
-
-  if (id === 'voicesetup-complete') {
-    const config = await getOrCreateVoiceConfig(interaction.guildId);
-    config.setupDone = true;
-    await config.save();
-    return showOverview(interaction);
-  }
 }
 
 async function handleVoiceSetupModalSubmit(interaction) {

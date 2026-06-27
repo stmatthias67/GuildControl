@@ -78,7 +78,6 @@ function buildApplicationOverviewComponents(config) {
   );
 
   const row3 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('applicationsetup-complete').setLabel('Setup abschließen').setStyle(ButtonStyle.Success).setEmoji('✅'),
     new ButtonBuilder().setCustomId('setup-menu-back').setLabel('Zurück').setStyle(ButtonStyle.Secondary).setEmoji('↩️'),
   );
 

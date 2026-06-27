@@ -365,13 +365,6 @@ async function handleApplicationSetupInteraction(interaction) {
     return showMainSetupMenu(interaction);
   }
 
-  if (id === 'applicationsetup-complete') {
-    const config = await getOrCreateApplicationConfig(interaction.guildId);
-    config.setupDone = true;
-    await config.save();
-    return showOverview(interaction);
-  }
-
   // --- Quick-Toggle aus der Formular-Liste ---
   if (id.startsWith('applicationsetup-quicktoggle-')) {
     const formId = id.replace('applicationsetup-quicktoggle-', '');

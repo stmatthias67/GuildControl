@@ -169,41 +169,10 @@ async function handleRankSetupInteraction(interaction) {
     return interaction.editReply({ embeds: [embed], components });
   }
 
-// Neuen Handler für "Zurück zum Setup" aus Rank-Bereich hinzufügen:
 if (id === 'ranksetup-back-main') {
-  // Die setup-finish/cancel Buttons werden direkt von setupHandler abgefangen,
-  // aber für "Zurück zum Setup" zeigen wir das Hauptmenü erneut an.
-  const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder,
-          StringSelectMenuOptionBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-
-  const embed = new EmbedBuilder()
-    .setTitle('⚙️ GuildControl Setup')
-    .setDescription('Wähle ein System zum Konfigurieren oder starte den Auto-Setup.')
-    .setColor(0x5865f2);
-
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId('setup-menu')
-    .setPlaceholder('System auswählen...')
-    .addOptions([
-      new StringSelectMenuOptionBuilder().setLabel('Rollen Setup').setValue('roles').setEmoji('👑'),
-      new StringSelectMenuOptionBuilder().setLabel('Ticket Setup').setValue('tickets').setEmoji('🎫'),
-      new StringSelectMenuOptionBuilder().setLabel('Security Setup').setValue('security').setEmoji('🛡️'),
-      new StringSelectMenuOptionBuilder().setLabel('Voice Setup').setValue('voice').setEmoji('🔊'),
-      new StringSelectMenuOptionBuilder().setLabel('Rank Setup').setValue('rank').setEmoji('📈'),
-      new StringSelectMenuOptionBuilder().setLabel('Bewerbungs Setup').setValue('applications').setEmoji('📋'),
-      new StringSelectMenuOptionBuilder().setLabel('Statistik Setup').setValue('stats').setEmoji('📊'),
-    ]);
-
-  const buttons = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('setup-create-all').setLabel('🚀 Auto Setup').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('setup-finish').setLabel('✅ Setup Abschließen').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId('setup-cancel').setLabel('❌ Abbrechen').setStyle(ButtonStyle.Danger),
-  );
-
-  return interaction.update({
-    embeds: [embed],
-    components: [new ActionRowBuilder().addComponents(menu), buttons],
-  });
+  const { buildMainSetupMenu } = require('./setupHandler');
+  const { embeds, components } = buildMainSetupMenu();
+  return interaction.update({ embeds, components });
 }
 
   // ═══════════════════════════════════════════════════════════════════════════
