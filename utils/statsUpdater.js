@@ -16,7 +16,7 @@ let intervalHandle = null;
 function computeValue(type, guild) {
   switch (type) {
     case 'members':
-      return guild.memberCount;
+      return guild.members.cache.filter(m => !m.user.bot).size;
     case 'bots':
       return guild.members.cache.filter(m => m.user.bot).size;
     case 'boosts':

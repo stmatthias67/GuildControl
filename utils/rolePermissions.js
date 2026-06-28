@@ -148,6 +148,16 @@ const ROLE_DEFINITIONS = [
     hoist: false,
     mentionable: false
   },
+  {
+    key: "bot",
+    label: "Bot",
+    emoji: "🤖",
+    color: 0x7289da,
+    description: "Wird automatisch an alle Bots vergeben, die dem Server beitreten.",
+    permissions: [],
+    hoist: false,
+    mentionable: false
+  },
 ];
 
 module.exports = { ROLE_DEFINITIONS };
