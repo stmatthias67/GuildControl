@@ -29,6 +29,9 @@ const GuildConfigSchema = new Schema(
       // Mitglieder
       mitglied: { type: String, default: null },
 
+      // Bots
+      bot: { type: String, default: null },
+
       // Donater
       bronze_donater: { type: String, default: null },
       silber_donater: { type: String, default: null },
