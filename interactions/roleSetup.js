@@ -204,7 +204,8 @@ async function startWizardAtStep(interaction, stepIndex) {
 
 async function handleRoleSetupInteraction(interaction) {
   const guildId = interaction.guild.id;
-  const [action, stepStr] = interaction.customId.split(":");
+  const id = interaction.customId;
+  const [action, stepStr] = id.split(":");
   const stepIndex = parseInt(stepStr, 10);
   const session = roleSessions.get(guildId) || { stepIndex, selectedRoleId: null };
 
