@@ -25,6 +25,7 @@ const supportCaseHandler = require('./supportCaseHandler');
 const { handleRoleSetupInteraction } = require('./roleSetup');
 const { handleRankSetupInteraction } = require('./rankSetupHandler');
 
+const statsSetupHandler = require('./statsSetupHandler');
 // ---------------------------------------------------------------------------
 // Bewerbungs-Live-System: Routing-Helper (unverändert aus index.js übernommen)
 // ---------------------------------------------------------------------------
@@ -195,6 +196,12 @@ const ROUTES = [
     matches: (id) => id.startsWith('setup-'),
     handle: (interaction, client) => setupHandler.execute(interaction, client),
     errorLabel: 'Setup-Hauptmenü',
+  },
+  {
+    name: 'stats-setup',
+    matches: (id) => id.startsWith('statssetup-'),
+    handle: (interaction) => statsSetupHandler.handleStatsSetupInteraction(interaction),
+    errorLabel: 'Statistik-Setup',
   },
 ];
 

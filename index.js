@@ -18,6 +18,8 @@ const path = require("path");
 const { routeComponentInteraction } = require("./interactions/router");
 const { initApplicationScheduler } = require("./utils/applicationScheduler");
 
+const { initStatsUpdater } = require('./utils/statsUpdater');
+require('./models/StatsConfig');
 // ─────────────────────────────────────────────────────────────
 // MongoDB verbinden
 // ─────────────────────────────────────────────────────────────
@@ -114,6 +116,7 @@ client.once("ready", async () => {
   }
 
   initApplicationScheduler(client);
+  initStatsUpdater(client);
 });
 
 // ─────────────────────────────────────────────────────────────

@@ -82,13 +82,10 @@ module.exports = {
         return showOverview(interaction);
       }
 
-      const placeholders = { stats: '📊 Statistik Setup' };
-
-      if (placeholders[value]) {
-        const embed = new EmbedBuilder()
-          .setTitle(`${placeholders[value]}`)
-          .setDescription('⚠️ Dieses System wird bald verfügbar sein!')
-          .setColor(0xfee75c);
+      if (value === 'stats') {
+        const { showOverview } = require('./statsSetupHandler');
+        return showOverview(interaction);
+      }
 
         return interaction.update({ embeds: [embed], components: [] });
       }
