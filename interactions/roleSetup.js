@@ -10,9 +10,7 @@ const { ROLE_DEFINITIONS } = require("../utils/rolePermissions");
 const { createRoleForKey, applyPermissionsToRole } = require("../utils/setupRoles");
 const { COLORS } = require('../utils/uiTheme');
 
-// In-Memory Session Store: guildId → { stepIndex, selectedRoleId }
 const roleSessions = new Map();
-
 const TOTAL = ROLE_DEFINITIONS.length;
 
 function buildRoleEmbed(stepIndex, selectedRoleId, guild) {
@@ -28,7 +26,7 @@ function buildRoleEmbed(stepIndex, selectedRoleId, guild) {
       : "`Keine extra Rechte`";
 
   const embed = new EmbedBuilder()
-    .setTitle(`${def.emoji} Rollen Setup — ${def.label}`)
+    .setTitle(`${def.emoji} Rollen Setup – ${def.label}`)
     .setDescription(
       `> ${def.description}\n\n` +
         `**Rechte:**\n${permissionText}\n\n` +
@@ -58,13 +56,13 @@ function buildRoleOverviewEmbed(config) {
   const roleLines = ROLE_DEFINITIONS.map((def, index) => {
     const id = savedRoles[def.key];
     const status = id ? `<@&${id}>` : '`Nicht konfiguriert`';
-    return `${def.emoji} **${index + 1}. ${def.label}** — ${status}`;
+    return `${def.emoji} **${index + 1}. ${def.label}** – ${status}`;
   }).join('\n');
 
   const configuredCount = ROLE_DEFINITIONS.filter(def => savedRoles[def.key]).length;
 
   return new EmbedBuilder()
-    .setTitle('👑 Rollen Setup — Übersicht')
+    .setTitle('👑 Rollen Setup – Übersicht')
     .setDescription(
       `Hier siehst du den aktuellen Stand aller Team-Rollen.\n\n${roleLines}`
     )
@@ -162,29 +160,24 @@ function buildRoleComponents(stepIndex, selectedRoleId) {
     new ButtonBuilder()
       .setCustomId(`role-setup-skip:${stepIndex}`)
       .setLabel("⏭️ Überspringen")
-      .setStyle(ButtonStyle.Secondary)
+      .setStyle(ButtonStyle.Secondary),
   );
 
   const navRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('role-setup-overview')
-        .setLabel('Zur Übersicht')
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji('🗂️'),
-    );
+    new ButtonBuilder()
+      .setCustomId('role-setup-overview')
+      .setLabel('Zur Übersicht')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('🗂️'),
+  );
 
   return [selectRow, buttonRow, navRow];
 }
-
-// ALT: startRoleSetup sprang direkt in Schritt 0 des Assistenten.
-// NEU: startRoleSetup zeigt die Übersicht. Der Assistent wird über einen
-// eigenen Button ("role-setup-startwizard") oder per Sprung-Auswahl erreicht.
 
 async function startRoleSetup(interaction) {
   return showRoleOverview(interaction);
 }
 
-// Neue Funktion für den Sprung in einen bestimmten Schritt (ersetzt die alte Direktlogik):
 async function startWizardAtStep(interaction, stepIndex) {
   const guildId = interaction.guild.id;
   const config = await GuildConfig.findOne({ guildId });
@@ -209,26 +202,28 @@ async function handleRoleSetupInteraction(interaction) {
   const stepIndex = parseInt(stepStr, 10);
   const session = roleSessions.get(guildId) || { stepIndex, selectedRoleId: null };
 
+  // ── Übersicht-spezifische Interaktionen ──────────────────────────────────────
   if (id === 'role-setup-startwizard') {
     return startWizardAtStep(interaction, 0);
   }
 
   if (id === 'role-setup-jumpto' && interaction.isStringSelectMenu()) {
-    const stepIndex = parseInt(interaction.values[0], 10);
-    return startWizardAtStep(interaction, stepIndex);
+    const jumpIndex = parseInt(interaction.values[0], 10);
+    return startWizardAtStep(interaction, jumpIndex);
   }
 
   if (id === 'role-setup-overview') {
     return showRoleOverview(interaction);
   }
 
+  // ── Schritt-Logik ─────────────────────────────────────────────────────────────
   if (action === "role-setup-select") {
     const selected = interaction.values?.[0];
     if (!selected) {
-        return interaction.reply({
-          content: "❌ Keine Rolle ausgewählt.",
-          ephemeral: true
-        });
+      return interaction.reply({
+        content: "❌ Keine Rolle ausgewählt.",
+        ephemeral: true
+      });
     }
     session.selectedRoleId = selected;
     roleSessions.set(guildId, session);
@@ -305,8 +300,8 @@ async function handleRoleSetupInteraction(interaction) {
     }
     return;
   }
-  if (action === "role-setup-save") {
 
+  if (action === "role-setup-save") {
     await interaction.deferUpdate();
     const roleId = session.selectedRoleId;
     const def = ROLE_DEFINITIONS[stepIndex];
@@ -323,56 +318,27 @@ async function handleRoleSetupInteraction(interaction) {
     }
 
     try {
-
       await GuildConfig.findOneAndUpdate(
         { guildId: interaction.guild.id },
-        {
-          $set: {
-            [`roles.${def.key}`]: roleId
-          }
-        },
-        {
-          upsert: true,
-          new: true
-        }
+        { $set: { [`roles.${def.key}`]: roleId } },
+        { upsert: true, new: true }
       );
-    console.log("✅ Rolle gespeichert");
-
-    await advanceStep(
-      interaction,
-      interaction.guild.id,
-      stepIndex
-    );
-
-  } catch (err) {
-
-    console.error("SAVE ERROR:", err);
-
-    await interaction.editReply({
-      content: "❌ Fehler beim Speichern.",
-      embeds: [],
-      components: []
-    });
+      console.log("✅ Rolle gespeichert");
+      await advanceStep(interaction, interaction.guild.id, stepIndex);
+    } catch (err) {
+      console.error("SAVE ERROR:", err);
+      await interaction.editReply({
+        content: "❌ Fehler beim Speichern.",
+        embeds: [],
+        components: []
+      });
+    }
+    return;
   }
-
-  return;
-}
 
   if (action === "role-setup-skip") {
     await interaction.deferUpdate();
     await advanceStep(interaction, guildId, stepIndex);
-    await interaction.editReply({
-      embeds: [finishEmbed],
-      components: [
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId('role-setup-overview')
-            .setLabel('Zur Übersicht')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('🗂️'),
-        ),
-      ],
-    });
     return;
   }
 }
@@ -402,7 +368,15 @@ async function advanceStep(interaction, guildId, currentIndex) {
 
     await interaction.editReply({
       embeds: [finishEmbed],
-      components: []
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('role-setup-overview')
+            .setLabel('Zur Übersicht')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('🗂️'),
+        ),
+      ],
     });
     return;
   }
