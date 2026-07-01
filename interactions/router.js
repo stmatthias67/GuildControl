@@ -26,6 +26,8 @@ const { handleRoleSetupInteraction } = require('./roleSetup');
 const { handleRankSetupInteraction } = require('./rankSetupHandler');
 
 const statsSetupHandler = require('./statsSetupHandler');
+
+const { logCriticalError } = require('../utils/errorLogger');
 // ---------------------------------------------------------------------------
 // Bewerbungs-Live-System: Routing-Helper (unverändert aus index.js übernommen)
 // ---------------------------------------------------------------------------
@@ -221,6 +223,15 @@ async function routeComponentInteraction(interaction, client) {
     await route.handle(interaction, client);
   } catch (err) {
     console.error(`❌ Fehler im ${route.errorLabel} (route: ${route.name}, customId: ${id}):`, err);
+
+    // NEU: zusätzlich in die Logdatei schreiben, mit Kontext
+    logCriticalError('router', err, {
+      route: route.name,
+      customId: id,
+      guildId: interaction.guildId,
+      userId: interaction.user?.id,
+    });
+
     try {
       if (!interaction.replied && !interaction.deferred) {
         await interaction.reply({ content: `❌ Fehler im ${route.errorLabel}.`, ephemeral: true });

@@ -1,7 +1,14 @@
 require("dotenv").config();
 
-process.on("unhandledRejection", console.error);
-process.on("uncaughtException", console.error);
+process.on("unhandledRejection", (err) => {
+  console.error(err);
+  logCriticalError('unhandledRejection', err);
+});
+process.on("uncaughtException", (err) => {
+  console.error(err);
+  logCriticalError('uncaughtException', err);
+});
+
 
 const {
   Client,
@@ -20,13 +27,23 @@ const { initApplicationScheduler } = require("./utils/applicationScheduler");
 
 const { initStatsUpdater } = require('./utils/statsUpdater');
 require('./models/StatsConfig');
+
+const { logCriticalError } = require('./utils/errorLogger');
 // ─────────────────────────────────────────────────────────────
 // MongoDB verbinden
 // ─────────────────────────────────────────────────────────────
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB verbunden"))
-  .catch((err) => console.error("❌ Mongo Fehler:", err));
+  .catch((err) => {
+    console.error("❌ Mongo Fehler:", err);
+    logCriticalError('db-connection-failed', err);
+  });
+
+mongoose.connection.on("error", (err) => {
+  console.error("🔴 DB ERROR", err);
+  logCriticalError('db-connection-error', err);
+});
 
 mongoose.connection.on("connected", () => console.log("🟢 DB CONNECTED"));
 mongoose.connection.on("error", (err) => console.error("🔴 DB ERROR", err));
