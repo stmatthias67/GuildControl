@@ -278,6 +278,78 @@ async function showOverview(interaction, cfg) {
   }).catch(() => null);
 }
 
+async function showGeneral(interaction, cfg) {
+  const fresh = cfg ?? await getOrCreate(interaction.guild.id);
+  await interaction.editReply({
+    embeds: [buildGeneralEmbed(fresh)],
+    components: buildGeneralComponents(fresh),
+  }).catch(() => null);
+}
+
+async function showSpam(interaction, cfg) {
+  const fresh = cfg ?? await getOrCreate(interaction.guild.id);
+  await interaction.editReply({
+    embeds: [buildSpamEmbed(fresh)],
+    components: buildSpamComponents(fresh),
+  }).catch(() => null);
+}
+
+async function showLinks(interaction, cfg) {
+  const fresh = cfg ?? await getOrCreate(interaction.guild.id);
+  await interaction.editReply({
+    embeds: [buildLinksEmbed(fresh)],
+    components: buildLinksComponents(fresh),
+  }).catch(() => null);
+}
+
+async function showMentions(interaction, cfg) {
+  const fresh = cfg ?? await getOrCreate(interaction.guild.id);
+  await interaction.editReply({
+    embeds: [buildMentionsEmbed(fresh)],
+    components: buildMentionsComponents(fresh),
+  }).catch(() => null);
+}
+
+async function showCaps(interaction, cfg) {
+  const fresh = cfg ?? await getOrCreate(interaction.guild.id);
+  await interaction.editReply({
+    embeds: [buildCapsEmbed(fresh)],
+    components: buildCapsComponents(fresh),
+  }).catch(() => null);
+}
+
+async function showVerification(interaction, cfg) {
+  const fresh = cfg ?? await getOrCreate(interaction.guild.id);
+  await interaction.editReply({
+    embeds: [buildVerificationEmbed(fresh)],
+    components: buildVerificationComponents(fresh),
+  }).catch(() => null);
+}
+
+async function showAntiRaid(interaction, cfg) {
+  const fresh = cfg ?? await getOrCreate(interaction.guild.id);
+  await interaction.editReply({
+    embeds: [buildAntiRaidEmbed(fresh)],
+    components: buildAntiRaidComponents(fresh),
+  }).catch(() => null);
+}
+
+async function showRoles(interaction, cfg) {
+  const fresh = cfg ?? await getOrCreate(interaction.guild.id);
+  await interaction.editReply({
+    embeds: [buildRolesEmbed(fresh)],
+    components: buildRolesComponents(fresh),
+  }).catch(() => null);
+}
+
+async function showLockdown(interaction, cfg) {
+  const fresh = cfg ?? await getOrCreate(interaction.guild.id);
+  await interaction.editReply({
+    embeds: [buildLockdownEmbed(fresh)],
+    components: buildLockdownComponents(fresh),
+  }).catch(() => null);
+}
+
 async function showMainSetup(interaction) {
   const { buildMainSetupMenu } = require('./setupHandler');
   const { embeds, components } = buildMainSetupMenu();

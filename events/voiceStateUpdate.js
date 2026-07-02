@@ -42,6 +42,10 @@ async function handleWaitingRoomJoin(newState) {
   }
 
   console.log(`[Voice] ${newState.member.user.tag} ist dem Warteraum beigetreten.`);
+  console.log(`[Voice] isVoiceLibAvailable: ${require('../utils/voicePlayback').isVoiceLibAvailable()}`);
+  console.log(`[Voice] withinWindow: ${withinWindow}`);
+  console.log(`[Voice] notifyChannelId: ${voiceConfig.notifyChannelId}`);
+  console.log(`[Voice] notifyRoleKeys: ${JSON.stringify(voiceConfig.notifyRoleKeys)}`);
 
   const channel = newState.channel;
   const withinWindow = isWithinSupportWindow(voiceConfig);
