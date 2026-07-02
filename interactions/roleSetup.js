@@ -354,16 +354,14 @@ async function advanceStep(interaction, guildId, currentIndex) {
 
     const roleLines = ROLE_DEFINITIONS.map((def) => {
       const id = savedRoles[def.key];
-      return `${def.emoji} **${def.label}:** ${id ? `<@&${id}>` : "`Übersprungen`"}`;
-    }).join("\n");
+      return `${def.emoji} **${def.label}:** ${id ? `<@&${id}>` : '`Übersprungen`'}`;
+    }).join('\n');
 
     const finishEmbed = new EmbedBuilder()
-      .setTitle("🎉 Rollen Setup Abgeschlossen")
-      .setDescription(
-        "Alle Rollen wurden erfolgreich konfiguriert und gespeichert.\n\n" + roleLines
-      )
+      .setTitle('🎉 Rollen Setup Abgeschlossen')
+      .setDescription('Alle Rollen wurden erfolgreich konfiguriert und gespeichert.\n\n' + roleLines)
       .setColor(COLORS.success)
-      .setFooter({ text: "GuildControl • Rollen Setup" })
+      .setFooter({ text: 'GuildControl • Rollen Setup' })
       .setTimestamp();
 
     await interaction.editReply({
@@ -381,11 +379,16 @@ async function advanceStep(interaction, guildId, currentIndex) {
     return;
   }
 
-  const session = { stepIndex: nextIndex, selectedRoleId: null };
+  // FIX: gespeicherte Rolle aus DB laden statt immer null zu setzen
+  const config = await GuildConfig.findOne({ guildId });
+  const nextDef = ROLE_DEFINITIONS[nextIndex];
+  const savedRoleId = config?.roles?.[nextDef.key] || null;
+
+  const session = { stepIndex: nextIndex, selectedRoleId: savedRoleId };
   roleSessions.set(guildId, session);
 
-  const embed = buildRoleEmbed(nextIndex, null, interaction.guild);
-  const components = buildRoleComponents(nextIndex, null);
+  const embed = buildRoleEmbed(nextIndex, savedRoleId, interaction.guild);
+  const components = buildRoleComponents(nextIndex, savedRoleId);
 
   await interaction.editReply({ embeds: [embed], components });
 }
