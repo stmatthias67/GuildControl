@@ -8,9 +8,12 @@ const StatChannelSchema = new Schema({
     enum: ['members', 'bots', 'boosts', 'online', 'channels', 'roles'],
     required: true,
   },
-  channelId: { type: String, required: true },
-  // Anzeige-Vorlage, {count} wird durch den aktuellen Wert ersetzt
-  template: { type: String, required: true }, // z.B. "👥 Mitglieder: {count}"
+  // Wird vom Bot gesetzt, sobald der Kanal erstellt wurde. Vorher null.
+  channelId: { type: String, default: null },
+  enabled: { type: Boolean, default: false },
+  order: { type: Number, default: 0 },
+  // Nur der Textteil vor "{count}" — {count} wird bot-seitig automatisch angehängt
+  namePrefix: { type: String, required: true },
 }, { _id: false });
 
 const StatsConfigSchema = new Schema({

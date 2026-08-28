@@ -26,6 +26,7 @@ const { routeComponentInteraction } = require("./interactions/router");
 const { initApplicationScheduler } = require("./utils/applicationScheduler");
 
 const { initStatsUpdater } = require('./utils/statsUpdater');
+const { startWebhookServer } = require('./utils/webhookServer');
 require('./models/StatsConfig');
 
 const { logCriticalError } = require('./utils/errorLogger');
@@ -134,6 +135,7 @@ client.once("ready", async () => {
 
   initApplicationScheduler(client);
   initStatsUpdater(client);
+  startWebhookServer(client);
 });
 
 // ─────────────────────────────────────────────────────────────

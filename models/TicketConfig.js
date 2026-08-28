@@ -8,6 +8,11 @@ const ticketConfigSchema = new mongoose.Schema({
   logChannelId:    { type: String, default: null },
   claimChannelId:  { type: String, default: null },
 
+  // Wo das öffentliche "Ticket erstellen"-Panel aktuell gepostet ist —
+  // damit der "Panel neu posten"-Button weiß, welche alte Nachricht er löschen muss.
+  panelChannelId: { type: String, default: null },
+  panelMessageId: { type: String, default: null },
+
   // Wie viele offene Tickets ein User gleichzeitig haben darf (Standard: 1)
   maxTicketsPerUser: { type: Number, default: 1, min: 1, max: 10 },
 
@@ -42,4 +47,4 @@ ticketConfigSchema.pre("save", function() {
   this.updatedAt = new Date();
 });
 
-module.exports = mongoose.model("TicketConfig", ticketConfigSchema);
+module.exports = mongoose.models.TicketConfig || mongoose.model("TicketConfig", ticketConfigSchema);
