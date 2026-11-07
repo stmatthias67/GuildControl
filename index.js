@@ -178,4 +178,6 @@ client.on("interactionCreate", async (interaction) => {
 // ─────────────────────────────────────────────────────────────
 // Login
 // ─────────────────────────────────────────────────────────────
-client.login(process.env.TOKEN);
+// Diagnose: Login-Fehler und Gateway-Ablauf sichtbar machen (nach der Fehlersuche wieder entfernen)
+client.on("debug", (m) => console.log("[DISCORD]", m));
+client.login(process.env.TOKEN).catch((err) => console.error("❌ Discord-Login fehlgeschlagen:", err));
