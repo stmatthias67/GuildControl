@@ -23,6 +23,8 @@ const {
 
 const TicketConfig = require('../models/TicketConfig');
 const ApplicationConfig = require('../models/ApplicationConfig');
+const SecurityConfig = require('../models/SecurityConfig');
+const { logCatch } = require('./errorLogger');
 
 /**
  * Postet das Ticket-Erstellen-Panel neu in createChannelId.
@@ -37,16 +39,16 @@ async function repostTicketPanel(client, guildId) {
   }
 
   const guild = await client.guilds.fetch(guildId);
-  const channel = await guild.channels.fetch(cfg.createChannelId).catch(() => null);
+  const channel = await guild.channels.fetch(cfg.createChannelId).catch(logCatch('panelRepost.fetch'));
   if (!channel) throw new Error('Erstell-Kanal nicht gefunden');
 
   // Alte Panel-Nachricht löschen, falls noch vorhanden
   if (cfg.panelChannelId && cfg.panelMessageId) {
     try {
-      const oldChannel = await guild.channels.fetch(cfg.panelChannelId).catch(() => null);
+      const oldChannel = await guild.channels.fetch(cfg.panelChannelId).catch(logCatch('panelRepost.fetch'));
       if (oldChannel) {
-        const oldMessage = await oldChannel.messages.fetch(cfg.panelMessageId).catch(() => null);
-        if (oldMessage) await oldMessage.delete().catch(() => {});
+        const oldMessage = await oldChannel.messages.fetch(cfg.panelMessageId).catch(logCatch('panelRepost.fetch'));
+        if (oldMessage) await oldMessage.delete().catch(logCatch('panelRepost.delete'));
       }
     } catch (err) {
       console.error('[panelRepost] Fehler beim Löschen des alten Ticket-Panels:', err.message);
@@ -121,14 +123,14 @@ async function repostApplicationForm(client, guildId, formId) {
   if (!form.buttonChannelId) throw new Error('Kein Button-Kanal für dieses Formular konfiguriert');
 
   const guild = await client.guilds.fetch(guildId);
-  const channel = await guild.channels.fetch(form.buttonChannelId).catch(() => null);
+  const channel = await guild.channels.fetch(form.buttonChannelId).catch(logCatch('panelRepost.fetch'));
   if (!channel) throw new Error('Button-Kanal nicht gefunden');
 
   // Alte Nachricht löschen, falls noch vorhanden
   if (form.buttonMessageId) {
     try {
-      const oldMessage = await channel.messages.fetch(form.buttonMessageId).catch(() => null);
-      if (oldMessage) await oldMessage.delete().catch(() => {});
+      const oldMessage = await channel.messages.fetch(form.buttonMessageId).catch(logCatch('panelRepost.fetch'));
+      if (oldMessage) await oldMessage.delete().catch(logCatch('panelRepost.delete'));
     } catch (err) {
       console.error('[panelRepost] Fehler beim Löschen des alten Bewerbungs-Buttons:', err.message);
     }
@@ -145,7 +147,61 @@ async function repostApplicationForm(client, guildId, formId) {
   return { channelId: channel.id, messageId: sent.id };
 }
 
+// customId bleibt aus Kompatibilität mit bereits geposteten Panels (Handler: interactions/verifyHandler.js)
+const VERIFY_BUTTON_ID = 'securitysetup-verify-button';
+
+/**
+ * Postet das Verify-Panel neu in verification.channelId.
+ * Die Message-ID wird nicht gespeichert (kein Schema-Feld); das alte Panel wird
+ * stattdessen an seinem Button unter den letzten 50 Nachrichten des Bots erkannt.
+ */
+async function repostVerifyPanel(client, guildId) {
+  const cfg = await SecurityConfig.findOne({ guildId });
+  if (!cfg) throw new Error('SecurityConfig nicht gefunden');
+  const v = cfg.verification || {};
+  if (!v.enabled) throw new Error('Verifikation ist nicht aktiviert');
+  if (!v.channelId || !v.verifiedRoleId) throw new Error('Kein Verify-Kanal oder keine Verified-Rolle konfiguriert');
+
+  const guild = await client.guilds.fetch(guildId);
+  const channel = await guild.channels.fetch(v.channelId).catch(logCatch('panelRepost.fetch'));
+  if (!channel) throw new Error('Verify-Kanal nicht gefunden');
+
+  // Altes Verify-Panel des Bots löschen, falls noch vorhanden
+  try {
+    const recent = await channel.messages.fetch({ limit: 50 }).catch(logCatch('panelRepost.fetch'));
+    const old = recent?.filter((m) =>
+      m.author.id === client.user.id &&
+      m.components.some((row) => row.components.some((c) => c.customId === VERIFY_BUTTON_ID))
+    );
+    for (const m of old?.values() ?? []) await m.delete().catch(logCatch('panelRepost.delete'));
+  } catch (err) {
+    console.error('[panelRepost] Fehler beim Löschen des alten Verify-Panels:', err.message);
+  }
+
+  const sent = await channel.send({
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('✅ Server Verifikation')
+        .setDescription(v.message || 'Klicke auf den Button um dich zu verifizieren und Zugang zum Server zu erhalten.')
+        .setColor(0x57f287)
+        .setFooter({ text: guild.name })
+        .setTimestamp(),
+    ],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(VERIFY_BUTTON_ID)
+          .setLabel('✅ Verifizieren')
+          .setStyle(ButtonStyle.Success)
+      ),
+    ],
+  });
+
+  return { channelId: channel.id, messageId: sent.id };
+}
+
 module.exports = {
   repostTicketPanel,
   repostApplicationForm,
+  repostVerifyPanel,
 };

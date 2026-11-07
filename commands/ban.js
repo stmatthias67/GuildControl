@@ -1,4 +1,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const ModerationEvent = require('../models/ModerationEvent');
+const { logCatch } = require('../utils/errorLogger');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -52,23 +54,38 @@ module.exports = {
           ephemeral: true,
         });
       }
-
-      await target.send({
-        embeds: [
-          new EmbedBuilder()
-            .setColor(0xFF0000)
-            .setTitle(`🔨 Du wurdest von **${interaction.guild.name}** gebannt`)
-            .addFields({ name: '📋 Grund', value: reason })
-            .setTimestamp(),
-        ],
-      }).catch(() => null);
     }
 
+    let event = null;
+    let banned = false;
     try {
+      // Erst protokollieren, dann handeln: ohne DB-Eintrag kein Ban.
+      event = await ModerationEvent.create({
+        guildId: interaction.guild.id,
+        type: 'ban',
+        actorId: interaction.user.id,
+        targetId: targetUser.id,
+        reason,
+        meta: { deleteDays },
+      });
+
+      if (target) {
+        await target.send({
+          embeds: [
+            new EmbedBuilder()
+              .setColor(0xFF0000)
+              .setTitle(`🔨 Du wurdest von **${interaction.guild.name}** gebannt`)
+              .addFields({ name: '📋 Grund', value: reason })
+              .setTimestamp(),
+          ],
+        }).catch(logCatch('ban.dm'));
+      }
+
       await interaction.guild.members.ban(targetUser.id, {
         reason,
         deleteMessageDays: deleteDays,
       });
+      banned = true;
 
       const embed = new EmbedBuilder()
         .setColor(0xFF0000)
@@ -86,10 +103,12 @@ module.exports = {
 
     } catch (error) {
       console.error('[BAN] Fehler:', error);
+      if (event && !banned) await event.deleteOne().catch(logCatch('ban.rollbackEvent'));
+      if (interaction.replied) return;
       return interaction.reply({
         content: '❌ Beim Bannen des Benutzers ist ein Fehler aufgetreten.',
         ephemeral: true,
-      });
+      }).catch(logCatch('ban.errorReply'));
     }
   },
 };

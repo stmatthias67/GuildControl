@@ -47,7 +47,6 @@ mongoose.connection.on("error", (err) => {
 });
 
 mongoose.connection.on("connected", () => console.log("🟢 DB CONNECTED"));
-mongoose.connection.on("error", (err) => console.error("🔴 DB ERROR", err));
 mongoose.connection.on("disconnected", () => console.log("🟠 DB DISCONNECTED"));
 
 // Models laden
@@ -142,8 +141,6 @@ client.once("ready", async () => {
 // Interaction Handler
 // ─────────────────────────────────────────────────────────────
 client.on("interactionCreate", async (interaction) => {
-  console.log("[INTERACTION]", interaction.customId, interaction.type);
-
   // ── Slash Commands ──────────────────────────────────────────────────────────
   if (interaction.isChatInputCommand()) {
     console.log("➡️ Command bekommen:", interaction.commandName);

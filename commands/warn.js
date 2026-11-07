@@ -1,4 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const Warn = require('../models/warn');
+const ModerationEvent = require('../models/ModerationEvent');
+const { logCatch } = require('../utils/errorLogger');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -40,6 +43,23 @@ module.exports = {
     }
 
     try {
+      // Erst speichern, dann antworten. Der Warn bleibt gültig, auch wenn Antwort oder DM scheitern.
+      const warn = await Warn.create({
+        guildId: interaction.guild.id,
+        userId: target.id,
+        moderatorId: interaction.user.id,
+        reason,
+      });
+      // Warn ist schon gespeichert: ein Event-Fehler darf ihn nicht als gescheitert melden (sonst Doppel-Warn).
+      await ModerationEvent.create({
+        guildId: interaction.guild.id,
+        type: 'warn',
+        actorId: interaction.user.id,
+        targetId: target.id,
+        reason,
+        meta: { warnId: warn._id.toString() },
+      }).catch(logCatch('warn.event'));
+
       const embed = new EmbedBuilder()
         .setColor(0xFFA500)
         .setTitle('⚠️ Verwarnung ausgesprochen')
@@ -61,14 +81,15 @@ module.exports = {
             .addFields({ name: '📋 Grund', value: reason })
             .setTimestamp(),
         ],
-      }).catch(() => null);
+      }).catch(logCatch('warn.dm'));
 
     } catch (error) {
       console.error('[WARN] Fehler:', error);
+      if (interaction.replied) return;
       return interaction.reply({
         content: '❌ Beim Ausführen der Verwarnung ist ein Fehler aufgetreten.',
         ephemeral: true,
-      });
+      }).catch(logCatch('warn.errorReply'));
     }
   },
 };

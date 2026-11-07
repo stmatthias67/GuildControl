@@ -15,6 +15,7 @@
 
 const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const StatsConfig = require('../models/StatsConfig');
+const { logCatch } = require('./errorLogger');
 
 const UPDATE_INTERVAL_MS = 10 * 60 * 1000; // 10 Minuten, wegen Discord Rate-Limit für Umbenennungen
 let intervalHandle = null;
@@ -85,7 +86,7 @@ async function syncChannelExistence(client, guildId) {
     } else if (!entry.enabled && entry.channelId) {
       // War an, ist jetzt aus -> Kanal löschen
       try {
-        const channel = await guild.channels.fetch(entry.channelId).catch(() => null);
+        const channel = await guild.channels.fetch(entry.channelId).catch(logCatch('statsUpdater.fetch'));
         if (channel) await channel.delete();
       } catch (err) {
         console.error(`[statsUpdater] Fehler beim Löschen von "${entry.type}":`, err.message);
@@ -114,7 +115,7 @@ async function refreshStatsChannelNames(client, guildId) {
 
   try {
     const guild = await client.guilds.fetch(guildId);
-    await guild.members.fetch().catch(() => null);
+    await guild.members.fetch().catch(logCatch('statsUpdater.fetch'));
 
     for (const entry of config.channels) {
       if (!entry.enabled || !entry.channelId) continue;

@@ -18,6 +18,23 @@
 
 const { EmbedBuilder, PermissionFlagsBits } = require("discord.js");
 const SecurityConfig = require("../models/SecurityConfig");
+const { logCatch } = require('./errorLogger');
+// 50013 (Bot fehlen Rechte) tritt im AutoMod bei jeder Nachricht erneut auf → nur einmal je guildId+Stelle pro 10 Min. loggen
+const MISSING_PERMS_INTERVAL_MS = 10 * 60_000;
+const missingPermsLogged = new Map(); // `${guildId}:${context}` → Zeitpunkt des letzten Logs
+
+function autoModCatch(context, guildId, now = Date.now) {
+  const log = logCatch(context);
+  return (err) => {
+    if (err?.code === 50013) {
+      const key  = `${guildId}:${context}`;
+      const last = missingPermsLogged.get(key);
+      if (last && now() - last < MISSING_PERMS_INTERVAL_MS) return null;
+      missingPermsLogged.set(key, now());
+    }
+    return log(err);
+  };
+}
 
 // ── Config-Cache (30s TTL) ────────────────────────────────────────────────────
 const configCache   = new Map(); // guildId → { cfg, timestamp }
@@ -111,30 +128,30 @@ async function applyPunishment(member, punishment, reason, cfg) {
               .setColor(0xfee75c)
               .setTimestamp()
           ]
-        }).catch(() => null);
+        }).catch(autoModCatch('securityManager.send', member.guild.id));
         break;
 
       case "mute": {
         const muteRoleId = cfg.roles?.muteRoleId;
         if (!muteRoleId) break;
-        await member.roles.add(muteRoleId, reason).catch(() => null);
+        await member.roles.add(muteRoleId, reason).catch(autoModCatch('securityManager.add', member.guild.id));
 
         // Automatisch wieder entmuten nach duration Minuten
         if (punishment.duration > 0) {
           const ms = punishment.duration * 60_000;
           setTimeout(async () => {
-            await member.roles.remove(muteRoleId, "AutoMod: Mute abgelaufen").catch(() => null);
+            await member.roles.remove(muteRoleId, "AutoMod: Mute abgelaufen").catch(autoModCatch('securityManager.remove', member.guild.id));
           }, ms);
         }
         break;
       }
 
       case "kick":
-        await member.kick(reason).catch(() => null);
+        await member.kick(reason).catch(autoModCatch('securityManager.kick', member.guild.id));
         break;
 
       case "ban":
-        await member.ban({ reason, deleteMessageSeconds: 60 }).catch(() => null);
+        await member.ban({ reason, deleteMessageSeconds: 60 }).catch(autoModCatch('securityManager.ban', member.guild.id));
         break;
     }
   } catch (err) {
@@ -163,7 +180,7 @@ async function logSecurityEvent(guild, cfg, { title, description, color = 0xed42
 
   if (fields.length) embed.addFields(fields);
 
-  await logChannel.send({ embeds: [embed] }).catch(() => null);
+  await logChannel.send({ embeds: [embed] }).catch(autoModCatch('securityManager.send', guild.id));
 }
 
 // ── SPAM CHECK ────────────────────────────────────────────────────────────────
@@ -189,7 +206,7 @@ async function checkSpam(message) {
     // Spam erkannt!
     spamTracker.delete(`${message.guild.id}:${message.author.id}`);
 
-    await message.delete().catch(() => null);
+    await message.delete().catch(autoModCatch('securityManager.delete', message.guild.id));
 
     await applyPunishment(message.member, cfg.spam.punishment, "AutoMod: Spam", cfg);
 
@@ -257,7 +274,7 @@ async function checkLinks(message) {
 
   if (!blocked) return false;
 
-  await message.delete().catch(() => null);
+  await message.delete().catch(autoModCatch('securityManager.delete', message.guild.id));
   await applyPunishment(message.member, cfg.links.punishment, `AutoMod: ${reason}`, cfg);
   await logSecurityEvent(message.guild, cfg, {
     title: "🔗 Link blockiert",
@@ -288,7 +305,7 @@ async function checkMentions(message) {
   const mentionCount = message.mentions.users.size + message.mentions.roles.size;
   if (mentionCount < (cfg.mentions.maxMentions || 5)) return false;
 
-  await message.delete().catch(() => null);
+  await message.delete().catch(autoModCatch('securityManager.delete', message.guild.id));
   await applyPunishment(message.member, cfg.mentions.punishment, "AutoMod: Mention Spam", cfg);
   await logSecurityEvent(message.guild, cfg, {
     title: "📢 Mention Spam erkannt",
@@ -329,7 +346,7 @@ async function checkCaps(message) {
 
   if (percentage < (cfg.caps.percentage || 70)) return false;
 
-  await message.delete().catch(() => null);
+  await message.delete().catch(autoModCatch('securityManager.delete', message.guild.id));
   await applyPunishment(message.member, cfg.caps.punishment, "AutoMod: Caps Spam", cfg);
   await logSecurityEvent(message.guild, cfg, {
     title: "🔡 Caps Spam erkannt",
@@ -388,9 +405,9 @@ async function checkRaid(member) {
   }
 
   if (action === "kick") {
-    await member.kick("AutoMod: Raid erkannt").catch(() => null);
+    await member.kick("AutoMod: Raid erkannt").catch(autoModCatch('securityManager.kick', member.guild.id));
   } else if (action === "ban") {
-    await member.ban({ reason: "AutoMod: Raid erkannt", deleteMessageSeconds: 0 }).catch(() => null);
+    await member.ban({ reason: "AutoMod: Raid erkannt", deleteMessageSeconds: 0 }).catch(autoModCatch('securityManager.ban', member.guild.id));
   }
 
   return true;
@@ -496,6 +513,7 @@ async function liftLockdown(guild, liftedById) {
 }
 
 module.exports = {
+  autoModCatch,
   getConfig,
   clearCache,
   checkSpam,

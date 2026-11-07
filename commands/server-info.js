@@ -1,5 +1,6 @@
 const { ChannelType } = require("discord.js");
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { logCatch } = require('../utils/errorLogger');
 
 const VERIFICATION_LEVELS = {
   0: '`Keine`',
@@ -28,7 +29,7 @@ module.exports = {
       const guild = interaction.guild;
       
 
-      const owner = await guild.fetchOwner().catch(() => null);
+      const owner = await guild.fetchOwner().catch(logCatch('server_info.fetchOwner'));
       const members = guild.memberCount;
       const bots = guild.members.cache.filter(m => m.user.bot).size;
       const humans = members - bots;

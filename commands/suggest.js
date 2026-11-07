@@ -6,24 +6,9 @@ const {
   ButtonStyle,
   PermissionFlagsBits,
 } = require('discord.js');
-
-// ─── MongoDB-Platzhalter ───────────────────────────────────────────────
-// Importiere hier dein Suggestion-Model, z.B.:
-// const Suggestion = require('../../models/Suggestion');
-//
-// Schema-Beispiel (Mongoose):
-// {
-//   guildId:     String,
-//   messageId:   String,
-//   channelId:   String,
-//   authorId:    String,
-//   content:     String,
-//   status:      { type: String, enum: ['offen', 'angenommen', 'abgelehnt'], default: 'offen' },
-//   upvotes:     { type: Number, default: 0 },
-//   downvotes:   { type: Number, default: 0 },
-//   createdAt:   { type: Date, default: Date.now },
-// }
-// ──────────────────────────────────────────────────────────────────────
+const mongoose = require('mongoose');
+const Suggestion = require('../models/Suggestion');
+const { logCatch } = require('../utils/errorLogger');
 
 const STATUS_CONFIG = {
   offen:       { color: '#5865F2', emoji: '🔵', label: 'Offen'      },
@@ -129,89 +114,93 @@ module.exports = {
       const content = interaction.options.getString('vorschlag');
       const author  = interaction.member;
 
-      // Zielkanal: Option > konfigurierten Kanal aus DB > aktuellen Kanal
-      let targetChannel = interaction.options.getChannel('kanal');
-      if (!targetChannel) {
-        // Beispiel: const cfg = await GuildConfig.findOne({ guildId: interaction.guild.id });
-        // targetChannel = interaction.guild.channels.cache.get(cfg?.suggestionChannelId) ?? interaction.channel;
-        targetChannel = interaction.channel; // Platzhalter
-      }
+      // shortcut: Kein konfigurierbarer Suggestion-Kanal (kommt mit den Web-Einstellungen), Standard = aktueller Kanal.
+      const targetChannel = interaction.options.getChannel('kanal') ?? interaction.channel;
 
+      if (!targetChannel.isTextBased?.()) {
+        return interaction.editReply({ content: '❌ Bitte wähle einen Textkanal.' });
+      }
+      // Auch der Nutzer muss dort schreiben dürfen, sonst postet der Bot stellvertretend in gesperrte Kanäle.
+      if (!targetChannel.permissionsFor(author).has(PermissionFlagsBits.SendMessages)) {
+        return interaction.editReply({ content: `❌ Du darfst in ${targetChannel} nicht schreiben.` });
+      }
       if (!targetChannel.permissionsFor(interaction.guild.members.me).has(PermissionFlagsBits.SendMessages)) {
         return interaction.editReply({ content: `❌ Ich habe keine Schreibrechte in ${targetChannel}.` });
       }
 
-      // Vorschlag in DB speichern (Platzhalter)
-      let suggestionId = Date.now().toString(36).toUpperCase(); // Platzhalter-ID
-      // const doc = await Suggestion.create({
-      //   guildId:   interaction.guild.id,
-      //   channelId: targetChannel.id,
-      //   authorId:  author.id,
-      //   content,
-      // });
-      // suggestionId = doc._id.toString();
+      // Erst speichern (die DB-ID steckt in den Button-IDs), dann posten.
+      const doc = await Suggestion.create({
+        guildId:   interaction.guild.id,
+        channelId: targetChannel.id,
+        authorId:  author.id,
+        content,
+      });
+      const suggestionId = doc._id.toString();
 
-      const embed   = buildSuggestionEmbed(author, content, 'offen', 0, 0, suggestionId);
-      const buttons = buildButtons(suggestionId, false);
-
-      const msg = await targetChannel.send({ embeds: [embed], components: buttons });
-
-      // messageId in DB speichern (Platzhalter)
-      // await Suggestion.findByIdAndUpdate(suggestionId, { messageId: msg.id });
+      let msg;
+      try {
+        msg = await targetChannel.send({
+          embeds: [buildSuggestionEmbed(author, content, 'offen', 0, 0, suggestionId)],
+          components: buildButtons(suggestionId, true),
+        });
+      } catch (error) {
+        await doc.deleteOne().catch(logCatch('suggest.rollback'));
+        throw error;
+      }
+      doc.messageId = msg.id;
+      await doc.save();
 
       await interaction.editReply({
         content: `✅ Dein Vorschlag wurde in ${targetChannel} eingereicht! (ID: \`${suggestionId}\`)`,
       });
     } catch (error) {
       console.error('[suggest] Fehler:', error);
-      await interaction.editReply({ content: '❌ Ein Fehler ist aufgetreten. Bitte versuche es erneut.' });
+      await interaction.editReply({ content: '❌ Ein Fehler ist aufgetreten. Bitte versuche es erneut.' })
+        .catch(logCatch('suggest.errorReply'));
     }
   },
 
-  // ── Button-Handler (in deinem interactionCreate-Event aufrufen) ─────────
-  // Beispiel-Aufruf in events/interactionCreate.js:
-  //
-  //   if (interaction.isButton()) {
-  //     const cmd = client.commands.get('suggest');
-  //     if (cmd?.handleButton) await cmd.handleButton(interaction);
-  //   }
-  //
+  // Aufruf über interactions/router.js für customId "suggest_<up|down|accept|reject>_<suggestionId>".
   async handleButton(interaction) {
-    const { customId } = interaction;
-    if (!customId.startsWith('suggest_')) return;
-
     await interaction.deferUpdate();
 
     try {
-      const [, action, ...idParts] = customId.split('_');
-      const suggestionId = idParts.join('_');
+      const [, action, suggestionId] = interaction.customId.split('_');
+      const userId = interaction.user.id;
 
-      // DB-Abfrage (Platzhalter):
-      // const doc = await Suggestion.findById(suggestionId);
-      // if (!doc) return interaction.followUp({ content: '❌ Vorschlag nicht gefunden.', ephemeral: true });
-
-      const isStaff = interaction.member.permissions.has(PermissionFlagsBits.ManageMessages);
+      const UPDATES = {
+        up:     { $addToSet: { upvoters: userId },   $pull: { downvoters: userId } },
+        down:   { $addToSet: { downvoters: userId }, $pull: { upvoters: userId } },
+        accept: { status: 'angenommen', decidedBy: userId },
+        reject: { status: 'abgelehnt',  decidedBy: userId },
+      };
+      const update = UPDATES[action];
+      if (!update || !mongoose.isValidObjectId(suggestionId)) {
+        return interaction.followUp({ content: '❌ Unbekannte Aktion.', ephemeral: true });
+      }
 
       // Nur Staff darf Annehmen/Ablehnen
-      if ((action === 'accept' || action === 'reject') && !isStaff) {
+      if ((action === 'accept' || action === 'reject')
+          && !interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
         return interaction.followUp({ content: '❌ Du hast keine Berechtigung dafür.', ephemeral: true });
       }
 
-      let upvotes   = 0; // doc.upvotes
-      let downvotes = 0; // doc.downvotes
-      let status    = 'offen'; // doc.status
+      // Atomar und nur solange offen: verhindert Doppelstimmen und Abstimmen nach der Entscheidung.
+      const doc = await Suggestion.findOneAndUpdate(
+        { _id: suggestionId, guildId: interaction.guild.id, status: 'offen' },
+        update,
+        { new: true },
+      );
+      if (!doc) {
+        return interaction.followUp({ content: '❌ Vorschlag nicht gefunden oder bereits entschieden.', ephemeral: true });
+      }
 
-      if (action === 'up')     { upvotes++;   /* await doc.save(); */ }
-      if (action === 'down')   { downvotes++; /* await doc.save(); */ }
-      if (action === 'accept') { status = 'angenommen'; /* await doc.save(); */ }
-      if (action === 'reject') { status = 'abgelehnt';  /* await doc.save(); */ }
-
-      const author  = await interaction.guild.members.fetch('AUTHOR_ID').catch(() => interaction.member);
-      const embed   = buildSuggestionEmbed(author, 'VORSCHLAG_CONTENT', status, upvotes, downvotes, suggestionId);
-      const buttons = buildButtons(suggestionId, isStaff);
+      const author  = await interaction.client.users.fetch(doc.authorId);
+      const embed   = buildSuggestionEmbed(author, doc.content, doc.status, doc.upvoters.length, doc.downvoters.length, suggestionId);
+      const buttons = buildButtons(suggestionId, true);
 
       // Buttons bei finalen Status deaktivieren
-      if (status !== 'offen') {
+      if (doc.status !== 'offen') {
         buttons.forEach(row =>
           row.components.forEach(btn => btn.setDisabled(true))
         );
@@ -220,7 +209,8 @@ module.exports = {
       await interaction.message.edit({ embeds: [embed], components: buttons });
     } catch (error) {
       console.error('[suggest:button] Fehler:', error);
-      await interaction.followUp({ content: '❌ Fehler beim Verarbeiten.', ephemeral: true });
+      await interaction.followUp({ content: '❌ Fehler beim Verarbeiten.', ephemeral: true })
+        .catch(logCatch('suggest.button.errorReply'));
     }
   },
 };

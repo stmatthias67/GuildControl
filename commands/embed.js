@@ -7,6 +7,7 @@ const {
   TextInputStyle,
   ActionRowBuilder,
 } = require('discord.js');
+const { logCatch } = require('../utils/errorLogger');
 
 const HEX_REGEX = /^#([0-9A-Fa-f]{6})$/;
 
@@ -79,19 +80,20 @@ module.exports = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
+    // Default-Permission ist in Discord überschreibbar, daher hier noch einmal prüfen.
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) {
+      return interaction.reply({ content: '❌ Dafür brauchst du die Berechtigung „Nachrichten verwalten“.', ephemeral: true });
+    }
+
     if (sub === 'schnell') {
       await interaction.deferReply({ ephemeral: true });
       await handleSchnell(interaction);
     } else if (sub === 'erstellen') {
-      await handleModal(interaction);
+      await module.exports.handleModal(interaction);
     }
   },
 
-  // ── Modal-Handler (in interactionCreate aufrufen) ─────────────────────
-  // if (interaction.isModalSubmit() && interaction.customId.startsWith('embed_modal_')) {
-  //   const cmd = client.commands.get('embed');
-  //   if (cmd?.handleModal) await cmd.handleModal(interaction);
-  // }
+  // Öffnet das Modal; der Submit "embed_modal_<interactionId>_<channelId>" läuft über interactions/router.js → onModalSubmit.
   async handleModal(interaction) {
     try {
       const targetChannel = interaction.options.getChannel('kanal') ?? interaction.channel;
@@ -152,7 +154,8 @@ module.exports = {
     } catch (error) {
       console.error('[embed:modal] Fehler:', error);
       if (!interaction.replied) {
-        await interaction.reply({ content: '❌ Modal konnte nicht geöffnet werden.', ephemeral: true });
+        await interaction.reply({ content: '❌ Modal konnte nicht geöffnet werden.', ephemeral: true })
+          .catch(logCatch('embed.modal.errorReply'));
       }
     }
   },
@@ -160,15 +163,25 @@ module.exports = {
   async onModalSubmit(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) {
+      return interaction.editReply({ content: '❌ Dafür brauchst du die Berechtigung „Nachrichten verwalten“.' });
+    }
+
     try {
       const [, , , channelId] = interaction.customId.split('_');
       const targetChannel = interaction.guild.channels.cache.get(channelId) ?? interaction.channel;
 
+      if (!targetChannel?.isTextBased?.()) {
+        return interaction.editReply({ content: '❌ Zielkanal nicht gefunden.' });
+      }
+      if (!targetChannel.permissionsFor(interaction.member).has(PermissionFlagsBits.SendMessages)) {
+        return interaction.editReply({ content: `❌ Du darfst in ${targetChannel} nicht schreiben.` });
+      }
       if (!targetChannel.permissionsFor(interaction.guild.members.me).has(PermissionFlagsBits.SendMessages)) {
         return interaction.editReply({ content: `❌ Keine Schreibrechte in ${targetChannel}.` });
       }
 
-      const title       = interaction.fields.getTextInputValue('embed_title');
+      const title      = interaction.fields.getTextInputValue('embed_title');
       const description = interaction.fields.getTextInputValue('embed_description');
       const rawColor    = interaction.fields.getTextInputValue('embed_color')?.trim() || '#5865F2';
       const imageUrl    = interaction.fields.getTextInputValue('embed_image')?.trim() || null;
@@ -196,7 +209,8 @@ module.exports = {
       await interaction.editReply({ content: `✅ Embed wurde in ${targetChannel} gesendet!` });
     } catch (error) {
       console.error('[embed:modalSubmit] Fehler:', error);
-      await interaction.editReply({ content: '❌ Ein Fehler ist aufgetreten.' });
+      await interaction.editReply({ content: '❌ Ein Fehler ist aufgetreten.' })
+        .catch(logCatch('embed.modalSubmit.errorReply'));
     }
   },
 };
@@ -223,6 +237,9 @@ async function handleSchnell(interaction) {
       return interaction.editReply({ content: `❌ Eingabefehler:\n${errors.join('\n')}` });
     }
 
+    if (!targetChannel.permissionsFor(interaction.member).has(PermissionFlagsBits.SendMessages)) {
+      return interaction.editReply({ content: `❌ Du darfst in ${targetChannel} nicht schreiben.` });
+    }
     if (!targetChannel.permissionsFor(interaction.guild.members.me).has(PermissionFlagsBits.SendMessages)) {
       return interaction.editReply({ content: `❌ Keine Schreibrechte in ${targetChannel}.` });
     }

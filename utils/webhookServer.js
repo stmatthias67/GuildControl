@@ -13,7 +13,7 @@
 
 const express = require('express');
 const { fullSyncGuild } = require('./statsUpdater');
-const { repostTicketPanel, repostApplicationForm } = require('./panelRepost');
+const { repostTicketPanel, repostApplicationForm, repostVerifyPanel } = require('./panelRepost');
 
 function verifySecret(req, res, next) {
   const auth = req.headers['authorization'] || '';
@@ -91,6 +91,10 @@ function startWebhookServer(client) {
             return res.status(400).json({ error: 'formId ist für panelType "application" erforderlich' });
           }
           result = await repostApplicationForm(client, guildId, formId);
+          break;
+
+        case 'verify':
+          result = await repostVerifyPanel(client, guildId);
           break;
 
         default:

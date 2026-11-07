@@ -1,5 +1,6 @@
 const { ChannelType } = require("discord.js");
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { logCatch } = require('../utils/errorLogger');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -17,7 +18,7 @@ module.exports = {
 
     try {
       const target = interaction.options.getUser('user') ?? interaction.user;
-      const member = await interaction.guild.members.fetch(target.id).catch(() => null);
+      const member = await interaction.guild.members.fetch(target.id).catch(logCatch('user_info.fetch'));
 
       if (!member) {
         return interaction.editReply({

@@ -12,20 +12,12 @@
  * Neue Systeme NUR HIER eintragen, nicht mehr in index.js.
  */
 
-const setupHandler = require('./setupHandler');
 const ticketHandler = require('./ticketHandler');
-const { handleVerifyButton } = require('./securitySetupHandler');
-
-const applicationSetupHandler = require('./applicationSetupHandler');
+const { handleVerifyButton } = require('./verifyHandler');
 const applicationHandler = require('./applicationHandler');
-
-const voiceSetupHandler = require('./voiceSetupHandler');
 const supportCaseHandler = require('./supportCaseHandler');
-
-const { handleRoleSetupInteraction } = require('./roleSetup');
-const { handleRankSetupInteraction } = require('./rankSetupHandler');
-
-const statsSetupHandler = require('./statsSetupHandler');
+const suggestCommand = require('../commands/suggest');
+const embedCommand = require('../commands/embed');
 
 const { logCriticalError } = require('../utils/errorLogger');
 // ---------------------------------------------------------------------------
@@ -129,8 +121,7 @@ async function handleSupportCaseRouting(interaction) {
 // Zentrale Routing-Tabelle
 // ---------------------------------------------------------------------------
 // Reihenfolge ist relevant: exakte Matches vor Präfix-Matches mit Überlappung.
-// "securitysetup-verify-button" wird VOR dem generischen "securitysetup-"-Block
-// geprüft (siehe Setup-Eintrag weiter unten, der ihn ausschließt).
+// Eingestellt wird im Web-Dashboard; hier stehen nur Live-Interaktionen.
 
 const ROUTES = [
   {
@@ -141,36 +132,9 @@ const ROUTES = [
   },
   {
     name: 'ticket',
-    matches: (id) => id.startsWith('ticket-') || id.startsWith('ticketsetup-'),
+    matches: (id) => id.startsWith('ticket-'),
     handle: (interaction, client) => ticketHandler.execute(interaction, client),
     errorLabel: 'Ticket-System',
-  },
-  {
-    name: 'role-setup',
-    matches: (id) => id.startsWith('role-setup-'),
-    handle: (interaction) => handleRoleSetupInteraction(interaction),
-    errorLabel: 'Rollen-Setup',
-  },
-  {
-    name: 'rank-setup',
-    matches: (id) => id.startsWith('ranksetup-'),
-    handle: (interaction) => handleRankSetupInteraction(interaction),
-    errorLabel: 'Rank-Setup',
-  },
-  {
-    name: 'security-setup',
-    matches: (id) => id.startsWith('securitysetup-'),
-    handle: (interaction, client) => require('./securitySetupHandler').execute(interaction, client),
-    errorLabel: 'Security-Setup',
-  },
-  {
-    name: 'application-setup',
-    matches: (id) => id.startsWith('applicationsetup-'),
-    handle: (interaction) =>
-      interaction.isModalSubmit()
-        ? applicationSetupHandler.handleApplicationSetupModalSubmit(interaction)
-        : applicationSetupHandler.handleApplicationSetupInteraction(interaction),
-    errorLabel: 'Bewerbungs-Setup',
   },
   {
     name: 'application-live',
@@ -179,31 +143,22 @@ const ROUTES = [
     errorLabel: 'Bewerbungssystem',
   },
   {
-    name: 'voice-setup',
-    matches: (id) => id.startsWith('voicesetup-'),
-    handle: (interaction) =>
-      interaction.isModalSubmit()
-        ? voiceSetupHandler.handleVoiceSetupModalSubmit(interaction)
-        : voiceSetupHandler.handleVoiceSetupInteraction(interaction),
-    errorLabel: 'Voice-Setup',
-  },
-  {
     name: 'support-case',
     matches: (id) => id.startsWith('supportcase-'),
     handle: (interaction) => handleSupportCaseRouting(interaction),
     errorLabel: 'Support-System',
   },
   {
-    name: 'main-setup',
-    matches: (id) => id.startsWith('setup-'),
-    handle: (interaction, client) => setupHandler.execute(interaction, client),
-    errorLabel: 'Setup-Hauptmenü',
+    name: 'suggest',
+    matches: (id) => id.startsWith('suggest_'),
+    handle: (interaction) => suggestCommand.handleButton(interaction),
+    errorLabel: 'Vorschlags-System',
   },
   {
-    name: 'stats-setup',
-    matches: (id) => id.startsWith('statssetup-'),
-    handle: (interaction) => statsSetupHandler.handleStatsSetupInteraction(interaction),
-    errorLabel: 'Statistik-Setup',
+    name: 'embed-modal',
+    matches: (id) => id.startsWith('embed_modal_'),
+    handle: (interaction) => embedCommand.onModalSubmit(interaction),
+    errorLabel: 'Embed-Editor',
   },
 ];
 

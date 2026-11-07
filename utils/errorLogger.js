@@ -55,4 +55,26 @@ function logCriticalError(category, err, context = {}) {
   }
 }
 
-module.exports = { logCriticalError, LOG_FILE };
+// Discord-Fehlercodes, die im Normalbetrieb vorkommen und bewusst ignoriert werden:
+// 10003 Unknown Channel, 10007 Unknown Member, 10008 Unknown Message, 10011 Unknown Role,
+// 10013 Unknown User, 10062 Unknown Interaction, 40060 schon bestätigt, 50007 DMs gesperrt.
+const EXPECTED_DISCORD_CODES = new Set([10003, 10007, 10008, 10011, 10013, 10062, 40060, 50007]);
+
+/**
+ * Ersatz für stummes `.catch(() => null)`: liefert weiter `null`, loggt aber.
+ * Erwartbare Discord-Fehler → console.warn, alles andere → console.error + errors.log.
+ * @param {string} context - z.B. "ticketHandler.deferUpdate"
+ */
+function logCatch(context) {
+  return (err) => {
+    if (EXPECTED_DISCORD_CODES.has(err?.code)) {
+      console.warn(`[${context}] ignoriert (${err.code}): ${err.message}`);
+    } else {
+      console.error(`[${context}]`, err);
+      logCriticalError(context, err);
+    }
+    return null;
+  };
+}
+
+module.exports = { logCriticalError, logCatch, LOG_FILE };

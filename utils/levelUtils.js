@@ -13,6 +13,7 @@
 const User       = require('../models/User');
 const RankConfig = require('../models/RankConfig');
 const LevelRole  = require('../models/LevelRole');
+const { logCatch } = require('./errorLogger');
 
 // ─── Formeln ──────────────────────────────────────────────────────────────────
 
@@ -70,12 +71,11 @@ async function checkAndAssignRankRoles(member, level, guildId) {
     const shouldHave = level >= lr.levelRequired;
 
     if (shouldHave && !hasRole) {
-      await member.roles.add(role, `GuildControl – Level ${level} erreicht (${lr.rankLabel})`).catch(() => null);
-      added.push(lr.roleId);
+      // nur erfolgreiche Änderungen zurückmelden (bei Fehler liefert logCatch null)
+      if (await member.roles.add(role, `GuildControl – Level ${level} erreicht (${lr.rankLabel})`).catch(logCatch('levelUtils.add'))) added.push(lr.roleId);
     } else if (!shouldHave && hasRole) {
       // Rang-Rolle entziehen wenn User darunter fällt (z.B. nach Reset)
-      await member.roles.remove(role, 'GuildControl – Level-Rang Korrektur').catch(() => null);
-      removed.push(lr.roleId);
+      if (await member.roles.remove(role, 'GuildControl – Level-Rang Korrektur').catch(logCatch('levelUtils.remove'))) removed.push(lr.roleId);
     }
   }
 

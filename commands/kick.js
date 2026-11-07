@@ -1,4 +1,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const ModerationEvent = require('../models/ModerationEvent');
+const { logCatch } = require('../utils/errorLogger');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -40,7 +42,18 @@ module.exports = {
       });
     }
 
+    let event = null;
+    let kicked = false;
     try {
+      // Erst protokollieren, dann handeln: ohne DB-Eintrag kein Kick.
+      event = await ModerationEvent.create({
+        guildId: interaction.guild.id,
+        type: 'kick',
+        actorId: interaction.user.id,
+        targetId: target.id,
+        reason,
+      });
+
       await target.send({
         embeds: [
           new EmbedBuilder()
@@ -49,9 +62,10 @@ module.exports = {
             .addFields({ name: '📋 Grund', value: reason })
             .setTimestamp(),
         ],
-      }).catch(() => null);
+      }).catch(logCatch('kick.dm'));
 
       await target.kick(reason);
+      kicked = true;
 
       const embed = new EmbedBuilder()
         .setColor(0xFF4500)
@@ -68,10 +82,12 @@ module.exports = {
 
     } catch (error) {
       console.error('[KICK] Fehler:', error);
+      if (event && !kicked) await event.deleteOne().catch(logCatch('kick.rollbackEvent'));
+      if (interaction.replied) return;
       return interaction.reply({
         content: '❌ Beim Kicken des Benutzers ist ein Fehler aufgetreten.',
         ephemeral: true,
-      });
+      }).catch(logCatch('kick.errorReply'));
     }
   },
 };

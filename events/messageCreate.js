@@ -22,6 +22,7 @@ const {
   checkMentions,
   checkCaps,
 } = require('../utils/securityManager');
+const { logCatch } = require('../utils/errorLogger');
 
 module.exports = {
   name: 'messageCreate',
@@ -88,7 +89,7 @@ module.exports = {
         ? (message.guild.channels.cache.get(targetChannelId) ?? message.channel)
         : message.channel;
 
-      await targetChannel.send({ embeds: [embed] }).catch(() => null);
+      await targetChannel.send({ embeds: [embed] }).catch(logCatch('messageCreate.send'));
 
     } catch (error) {
       console.error('[XP] Fehler beim Vergeben von XP:', error);

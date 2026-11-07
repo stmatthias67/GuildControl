@@ -1,4 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { logCatch } = require('../utils/errorLogger');
 
 const EMOJI_MAP = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 
@@ -95,7 +96,7 @@ module.exports = {
         const delay = endsAt - Date.now();
         setTimeout(async () => {
           try {
-            const fetched = await targetChannel.messages.fetch(pollMessage.id).catch(() => null);
+            const fetched = await targetChannel.messages.fetch(pollMessage.id).catch(logCatch('poll.fetch'));
             if (!fetched) return;
 
             const results = options.map((opt, i) => {

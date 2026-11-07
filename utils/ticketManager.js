@@ -10,6 +10,7 @@ const {
 
 const TicketConfig = require("../models/TicketConfig");
 const Ticket       = require("../models/Ticket");
+const { logCatch } = require('./errorLogger');
 
 // ── Vordefinierte Kategorien ─────────────────────────────────────────────────
 const DEFAULT_CATEGORIES = [
@@ -210,8 +211,8 @@ async function closeTicket(guild, channel, closedBy) {
   ticket.status     = "closed";
   await ticket.save();
 
-  const closedByUser = await guild.client.users.fetch(closedBy).catch(() => null);
-  const creator      = await guild.client.users.fetch(ticket.userId).catch(() => null);
+  const closedByUser = await guild.client.users.fetch(closedBy).catch(logCatch('ticketManager.fetch'));
+  const creator      = await guild.client.users.fetch(ticket.userId).catch(logCatch('ticketManager.fetch'));
 
   const helperIds = [...new Set([
     ticket.claimedBy,
@@ -219,7 +220,7 @@ async function closeTicket(guild, channel, closedBy) {
   ].filter(id => id && id !== ticket.userId))];
 
   const helpers = (await Promise.all(
-    helperIds.map(id => guild.client.users.fetch(id).catch(() => null))
+    helperIds.map(id => guild.client.users.fetch(id).catch(logCatch('ticketManager.fetch')))
   )).filter(Boolean);
 
   if (cfg?.logChannelId && ticket.logMessageId) {
@@ -236,8 +237,11 @@ async function closeTicket(guild, channel, closedBy) {
         const updatedEmbed = buildClosedLogEmbed(ticket, creator, closedByUser, helpers);
         await logMsg.edit({ embeds: [updatedEmbed] });
         if (files.length) {
-          await logChannel.send({ reply: { messageReference: ticket.logMessageId }, files }).catch(() =>
-            logChannel.send({ files })
+          await logChannel.send({ reply: { messageReference: ticket.logMessageId }, files }).catch((err) => {
+              // Fallback: Original-Log nicht mehr da → Transcript ohne Reply senden
+              console.warn('[ticketManager] Transcript-Reply fehlgeschlagen, sende ohne Reply:', err.message);
+              return logChannel.send({ files });
+            }
           );
         }
       } catch (err) {
@@ -259,7 +263,7 @@ async function closeTicket(guild, channel, closedBy) {
   });
 
   setTimeout(async () => {
-    await channel.delete("Ticket geschlossen").catch(() => null);
+    await channel.delete("Ticket geschlossen").catch(logCatch('ticketManager.delete'));
   }, 5000);
 
   return { success: true };
@@ -388,7 +392,7 @@ function buildClosedLogEmbed(ticket, creator, closedByUser, helpers) {
 
 // ── Transcript generieren ────────────────────────────────────────────────────
 async function generateTranscript(channel) {
-  const messages = await channel.messages.fetch({ limit: 100 }).catch(() => null);
+  const messages = await channel.messages.fetch({ limit: 100 }).catch(logCatch('ticketManager.fetch'));
   if (!messages) return "(Keine Nachrichten geladen)";
 
   const lines = [...messages.values()]

@@ -1,4 +1,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const ModerationEvent = require('../models/ModerationEvent');
+const { logCatch } = require('../utils/errorLogger');
 
 const TIME_UNITS = {
   s: 1000,
@@ -82,8 +84,21 @@ module.exports = {
       });
     }
 
+    let event = null;
+    let muted = false;
     try {
+      // Erst protokollieren, dann handeln: ohne DB-Eintrag kein Mute.
+      event = await ModerationEvent.create({
+        guildId: interaction.guild.id,
+        type: 'mute',
+        actorId: interaction.user.id,
+        targetId: target.id,
+        reason,
+        meta: { durationMs },
+      });
+
       await target.timeout(durationMs, reason);
+      muted = true;
 
       const embed = new EmbedBuilder()
         .setColor(0xFF6600)
@@ -110,14 +125,16 @@ module.exports = {
             )
             .setTimestamp(),
         ],
-      }).catch(() => null);
+      }).catch(logCatch('mute.dm'));
 
     } catch (error) {
       console.error('[MUTE] Fehler:', error);
+      if (event && !muted) await event.deleteOne().catch(logCatch('mute.rollbackEvent'));
+      if (interaction.replied) return;
       return interaction.reply({
         content: '❌ Beim Muten des Benutzers ist ein Fehler aufgetreten.',
         ephemeral: true,
-      });
+      }).catch(logCatch('mute.errorReply'));
     }
   },
 };

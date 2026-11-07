@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getUserRank, getLevelProgress, buildProgressBar } = require('../utils/levelUtils');
+const { logCatch } = require('../utils/errorLogger');
 
 // Farbe je nach Level
 function getLevelColor(level) {
@@ -31,7 +32,7 @@ module.exports = {
     await interaction.deferReply();
 
     const target = interaction.options.getUser('user') ?? interaction.user;
-    const member = await interaction.guild.members.fetch(target.id).catch(() => null);
+    const member = await interaction.guild.members.fetch(target.id).catch(logCatch('rank.fetch'));
 
     const { user, rank } = await getUserRank(target.id, interaction.guild.id);
 

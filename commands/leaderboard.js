@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { getLeaderboard, getLevelProgress, buildProgressBar } = require('../utils/levelUtils');
+const { logCatch } = require('../utils/errorLogger');
 
 // Medaillen für die Top 3
 const MEDALS = ['🥇', '🥈', '🥉'];
@@ -28,7 +29,7 @@ module.exports = {
     const memberMap = new Map();
     await Promise.all(
       topUsers.map(async (u) => {
-        const member = await interaction.guild.members.fetch(u.userId).catch(() => null);
+        const member = await interaction.guild.members.fetch(u.userId).catch(logCatch('leaderboard.fetch'));
         memberMap.set(u.userId, member);
       })
     );
@@ -61,7 +62,7 @@ module.exports = {
     const ownRank = await require('../models/User').countDocuments({
       guildId: interaction.guild.id,
       xp: { $gt: (await require('../models/User').findOne({ userId: interaction.user.id, guildId: interaction.guild.id }))?.xp ?? 0 },
-    }).catch(() => null);
+    }).catch(logCatch('leaderboard.countDocuments'));
 
     const embed = new EmbedBuilder()
       .setColor(0xFFD700)
